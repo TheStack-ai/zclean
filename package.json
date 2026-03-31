@@ -1,12 +1,33 @@
 {
   "name": "@thestackai/zclean",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Automatic zombie process cleaner for AI coding tools (Claude Code, Codex)",
-  "bin": { "zclean": "./bin/zclean.js" },
-  "keywords": ["claude-code", "codex", "cleanup", "zombie", "orphan", "process", "ai-tools", "mcp"],
+  "bin": {
+    "zclean": "./bin/zclean.js"
+  },
+  "keywords": [
+    "claude-code",
+    "codex",
+    "cleanup",
+    "zombie",
+    "orphan",
+    "process",
+    "ai-tools",
+    "mcp"
+  ],
   "author": "whynowlab",
   "license": "MIT",
-  "repository": { "type": "git", "url": "https://github.com/whynowlab/zclean.git" },
-  "engines": { "node": ">=18" },
-  "files": ["bin/", "src/", "LICENSE", "README.md"]
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/whynowlab/zclean.git"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "LICENSE",
+    "README.md"
+  ]
 }
