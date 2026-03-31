@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18, 20, 22]
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Syntax check all source files
+        shell: bash
+        run: |
+          EXIT_CODE=0
+          for f in bin/zclean.js $(find src -name '*.js') $(find test -name '*.js'); do
+            if ! node -c "$f" 2>/dev/null; then
+              echo "FAIL: $f"
+              EXIT_CODE=1
+            fi
+          done
+          exit $EXIT_CODE
+
+      - name: Run tests
+        run: node --test test/patterns.test.js test/scanner.test.js test/process-tree.test.js test/killer.test.js
+
+      - name: Dry-run scan (smoke test)
+        run: node bin/zclean.js
