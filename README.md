@@ -11,8 +11,13 @@
 **Stop AI coding tools from eating your RAM.**
 
 [![npm version](https://img.shields.io/npm/v/@thestackai/zclean?style=flat-square&color=blue)](https://www.npmjs.com/package/@thestackai/zclean)
+[![npm downloads](https://img.shields.io/npm/dm/@thestackai/zclean?style=flat-square&color=brightgreen)](https://www.npmjs.com/package/@thestackai/zclean)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#)
+[![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-58%20passing-brightgreen?style=flat-square)](#)
+[![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
 </div>
