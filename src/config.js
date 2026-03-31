@@ -17,6 +17,7 @@ const DEFAULT_CONFIG = {
   sigterm_timeout: 10,
   dryRunDefault: true,
   logRetention: '30d',
+  maxKillBatch: 20,
 };
 
 /**

@@ -37,6 +37,30 @@ function resolveZcleanBin() {
 }
 
 /**
+ * Resolve the active nvm node bin path, if nvm is installed.
+ * Returns the path or null.
+ */
+function resolveNvmNodeBin() {
+  const nvmDir = path.join(os.homedir(), '.nvm', 'versions', 'node');
+  try {
+    if (!fs.existsSync(nvmDir)) return null;
+    // Use the currently running node's path if it's under .nvm
+    const nodeBin = process.execPath;
+    if (nodeBin.includes('.nvm')) {
+      return path.dirname(nodeBin);
+    }
+    // Fallback: find the default version directory
+    const versions = fs.readdirSync(nvmDir).filter((d) => d.startsWith('v')).sort().reverse();
+    if (versions.length > 0) {
+      return path.join(nvmDir, versions[0], 'bin');
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
+/**
  * Generate the launchd plist XML.
  */
 function generatePlist(binPath) {
@@ -45,6 +69,20 @@ function generatePlist(binPath) {
     .concat(['--yes'])
     .map((arg) => `      <string>${arg}</string>`)
     .join('\n');
+
+  // Build PATH with nvm node bin if available
+  const pathParts = [
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+    '/opt/homebrew/bin',
+    path.join(os.homedir(), '.local', 'bin'),
+  ];
+  const nvmBin = resolveNvmNodeBin();
+  if (nvmBin) {
+    pathParts.push(nvmBin);
+  }
+  const envPath = pathParts.join(':');
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -73,7 +111,7 @@ ${programArgs}
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${path.join(os.homedir(), '.local', 'bin')}</string>
+        <string>${envPath}</string>
     </dict>
 </dict>
 </plist>

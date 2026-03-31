@@ -4,13 +4,40 @@
  * Process patterns to detect AI tool zombies.
  *
  * Each pattern has:
- *   name       — human-readable identifier
- *   match      — RegExp to test against full command line
- *   minAge     — minimum age (ms) before considering it a zombie (0 = any age)
- *   maxOrphanAge — if set, orphan processes older than this are zombies (duration string)
- *   memThreshold — if set, only flag if RSS exceeds this (bytes string like "500MB")
- *   orphanOnly — if true, only flag orphaned processes (default: true for most)
+ *   name          — human-readable identifier
+ *   match         — RegExp to test against full command line
+ *   minAge        — minimum age (ms) before considering it a zombie (0 = any age)
+ *   maxOrphanAge  — if set, orphan processes older than this are zombies (duration string)
+ *   memThreshold  — if set, only flag if RSS exceeds this (bytes string like "500MB")
+ *   orphanOnly    — if true, only flag orphaned processes (default: true for most)
+ *   aiPathRequired — if true, cmdline must also match AI_DIR_REGEX to be flagged
  */
+
+/** Centralized list of AI tool config directories */
+const AI_TOOL_DIRS = [
+  '.claude', '.cursor', '.windsurf', '.continue', '.cline',
+  '.roo', '.kilocode', '.augment', '.codex', '.copilot',
+  '.aider', '.gemini', '.trae', '.goose',
+];
+
+/**
+ * Build a regex that matches any AI tool directory in a path.
+ * Matches "{dir}/" or "{dir}\" for each directory.
+ * @param {string[]} [customDirs] — additional directories from config
+ * @returns {RegExp}
+ */
+function buildAiDirRegex(customDirs) {
+  const allDirs = customDirs && customDirs.length > 0
+    ? [...AI_TOOL_DIRS, ...customDirs]
+    : AI_TOOL_DIRS;
+
+  const escaped = allDirs.map((d) => d.replace(/\./g, '\\.'));
+  return new RegExp(`(?:${escaped.join('|')})[/\\\\]`);
+}
+
+/** Default regex (no custom dirs) */
+const AI_DIR_REGEX = buildAiDirRegex();
+
 const PATTERNS = [
   // MCP servers — any orphaned MCP server is suspect
   {
@@ -37,6 +64,14 @@ const PATTERNS = [
     orphanOnly: true,
   },
 
+  // Claude session processes (claude --session-id)
+  {
+    name: 'claude-session',
+    match: /claude\s+--session-id/,
+    minAge: 0,
+    orphanOnly: true,
+  },
+
   // Claude subagent processes
   {
     name: 'claude-subagent',
@@ -53,13 +88,38 @@ const PATTERNS = [
     orphanOnly: true,
   },
 
-  // Build tools — only if orphaned for 24h+
+  // Codex sandbox processes
+  {
+    name: 'codex-sandbox',
+    match: /codex-sandbox/,
+    minAge: 0,
+    orphanOnly: true,
+  },
+
+  // Aider processes
+  {
+    name: 'aider',
+    match: /python.*aider|(?:^|\s|\/)aider\b/,
+    minAge: 0,
+    orphanOnly: true,
+  },
+
+  // Gemini CLI processes
+  {
+    name: 'gemini-cli',
+    match: /\bgemini\b/,
+    minAge: 0,
+    orphanOnly: true,
+  },
+
+  // Build tools — only if orphaned for 24h+ AND in AI path
   {
     name: 'esbuild',
     match: /esbuild/,
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'vite',
@@ -67,6 +127,7 @@ const PATTERNS = [
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'next-dev',
@@ -74,6 +135,7 @@ const PATTERNS = [
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'webpack',
@@ -81,33 +143,37 @@ const PATTERNS = [
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
 
-  // npx/npm exec — orphaned
+  // npx/npm exec — orphaned, AI path required
   {
     name: 'npm-exec',
     match: /npm\s+exec|npx\s/,
     minAge: 0,
     orphanOnly: true,
+    aiPathRequired: true,
   },
 
   // Node processes with AI tool paths — orphan + age/memory gated
   {
     name: 'node-ai-path',
-    match: /node\b.*(?:\.claude[/\\]|[/\\]mcp[/\\]|[/\\]agent[/\\])/,
+    match: /node\b/,
     minAge: 0,
     maxOrphanAge: '24h',
     memThreshold: '500MB',
     orphanOnly: true,
+    aiPathRequired: true,
   },
 
-  // TypeScript runners — orphan + AI tool related
+  // TypeScript runners — orphan + AI path required
   {
     name: 'tsx',
     match: /\btsx\b/,
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'ts-node',
@@ -115,34 +181,49 @@ const PATTERNS = [
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'bun',
-    match: /\bbun\b.*(?:\.claude|mcp|agent)/,
+    match: /\bbun\b/,
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
   {
     name: 'deno',
-    match: /\bdeno\b.*(?:\.claude|mcp|agent)/,
+    match: /\bdeno\b/,
     minAge: 0,
     maxOrphanAge: '24h',
     orphanOnly: true,
+    aiPathRequired: true,
   },
 ];
 
 /**
  * Match a command line against known patterns.
  * Returns the first matching pattern or null.
+ *
+ * @param {string} cmdline — process command line
+ * @param {object} [config] — optional config with customAiDirs
+ * @returns {object|null} matched pattern or null
  */
-function matchPattern(cmdline) {
+function matchPattern(cmdline, config) {
+  const aiRegex = config && config.customAiDirs && config.customAiDirs.length > 0
+    ? buildAiDirRegex(config.customAiDirs)
+    : AI_DIR_REGEX;
+
   for (const pattern of PATTERNS) {
     if (pattern.match.test(cmdline)) {
+      // If pattern requires AI path context, check it
+      if (pattern.aiPathRequired && !aiRegex.test(cmdline)) {
+        continue;
+      }
       return pattern;
     }
   }
   return null;
 }
 
-module.exports = { PATTERNS, matchPattern };
+module.exports = { PATTERNS, AI_TOOL_DIRS, AI_DIR_REGEX, buildAiDirRegex, matchPattern };

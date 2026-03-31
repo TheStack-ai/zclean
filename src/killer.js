@@ -24,9 +24,17 @@ const platform = os.platform();
  */
 function killZombies(zombies, config) {
   const timeout = (config.sigterm_timeout || 10) * 1000;
-  const results = { killed: [], failed: [], skipped: [] };
+  const limit = config.maxKillBatch || 20;
+  const results = { killed: [], failed: [], skipped: [], warning: null };
 
-  for (const proc of zombies) {
+  // Rate limit: only kill up to maxKillBatch processes
+  let toKill = zombies;
+  if (zombies.length > limit) {
+    toKill = zombies.slice(0, limit);
+    results.warning = `Found ${zombies.length} zombies, killing ${limit}. Run again for remaining.`;
+  }
+
+  for (const proc of toKill) {
     // Re-verify before killing
     const verification = verifyProcess(proc);
     if (!verification.valid) {
@@ -73,6 +81,7 @@ function killZombies(zombies, config) {
     killed: results.killed.length,
     failed: results.failed.length,
     skipped: results.skipped.length,
+    limited: zombies.length > limit,
     totalMemFreed: results.killed.reduce((sum, p) => sum + p.mem, 0),
   });
 
@@ -189,11 +198,8 @@ function killProcessUnix(pid, timeoutMs) {
     try {
       // process.kill(pid, 0) throws if process doesn't exist
       process.kill(pid, 0);
-      // Still alive — busy wait in small increments
-      const waitUntil = Date.now() + 500;
-      while (Date.now() < waitUntil) {
-        // Spin wait — we can't use setTimeout synchronously
-      }
+      // Still alive — blocking sleep to avoid CPU spin
+      try { execSync('sleep 0.5', { timeout: 2000 }); } catch { /* ignore */ }
     } catch {
       // Process is gone
       return { success: true, method: 'sigterm' };
@@ -228,9 +234,8 @@ function killProcessWindows(pid, timeoutMs) {
         encoding: 'utf-8',
         timeout: 3000,
       });
-      // Still alive — wait
-      const waitUntil = Date.now() + 500;
-      while (Date.now() < waitUntil) { /* spin */ }
+      // Still alive — blocking wait to avoid CPU spin
+      try { execSync('timeout /T 1 /NOBREAK >nul', { timeout: 3000 }); } catch { /* ignore */ }
     } catch {
       return { success: true, method: 'taskkill' };
     }

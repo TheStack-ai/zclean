@@ -1,8 +1,7 @@
 'use strict';
 
-const { execSync } = require('child_process');
-const os = require('os');
 const fs = require('fs');
+const os = require('os');
 
 const platform = os.platform();
 
@@ -12,16 +11,14 @@ const DAEMON_MANAGERS = ['pm2', 'forever', 'supervisord', 'supervisor', 'nodemon
 /**
  * Check if a process should be protected from cleanup.
  *
- * Protection criteria:
- *   1. In user's config whitelist (PID or name pattern)
- *   2. Has a daemon manager ancestor (pm2, forever, supervisord)
- *   3. Running inside a Docker container (Linux: different PID namespace)
- *   4. Launched with nohup
- *   5. VS Code child process (48h grace period)
+ * Now tree-aware: ancestor checks use ProcessTree instead of per-process execSync.
  *
- * Returns { protected: boolean, reason: string }
+ * @param {object} proc — process info from tree
+ * @param {object} config — zclean config
+ * @param {import('../process-tree').ProcessTree} [tree] — in-memory process tree
+ * @returns {{ protected: boolean, reason: string }}
  */
-function isWhitelisted(proc, config) {
+function isWhitelisted(proc, config, tree) {
   // 1. Config whitelist — match by PID or name substring
   if (config.whitelist && config.whitelist.length > 0) {
     for (const entry of config.whitelist) {
@@ -34,12 +31,12 @@ function isWhitelisted(proc, config) {
     }
   }
 
-  // 2. Daemon manager ancestor
-  if (hasDaemonAncestor(proc.pid)) {
+  // 2. Daemon manager ancestor (tree-based, no execSync)
+  if (tree && hasDaemonAncestorTree(proc.pid, tree)) {
     return { protected: true, reason: 'daemon-managed' };
   }
 
-  // 3. Docker container (Linux only)
+  // 3. Docker container (Linux only — reads /proc, no tree needed)
   if (isInDocker(proc.pid)) {
     return { protected: true, reason: 'docker-container' };
   }
@@ -49,9 +46,9 @@ function isWhitelisted(proc, config) {
     return { protected: true, reason: 'nohup-launched' };
   }
 
-  // 5. VS Code child with grace period
+  // 5. VS Code child with grace period (tree-based)
   const vscodeGrace = 48 * 60 * 60 * 1000; // 48 hours
-  if (isVSCodeChild(proc.pid) && proc.age < vscodeGrace) {
+  if (tree && isVSCodeChildTree(proc.pid, tree) && proc.age < vscodeGrace) {
     return { protected: true, reason: 'vscode-child-grace' };
   }
 
@@ -59,68 +56,20 @@ function isWhitelisted(proc, config) {
 }
 
 /**
- * Walk process tree upward looking for daemon manager ancestors.
+ * Check for daemon manager ancestor via ProcessTree.
  */
-function hasDaemonAncestor(pid) {
-  if (platform === 'win32') {
-    // Simplified check for Windows — just check parent command
-    try {
-      const output = execSync(
-        `wmic process where ProcessId=${pid} get ParentProcessId /value`,
-        { encoding: 'utf-8', timeout: 5000 }
-      ).trim();
-      const match = output.match(/ParentProcessId=(\d+)/);
-      if (!match) return false;
-      const ppid = parseInt(match[1], 10);
-      const parentCmd = execSync(
-        `wmic process where ProcessId=${ppid} get CommandLine /value`,
-        { encoding: 'utf-8', timeout: 5000 }
-      ).trim();
-      return DAEMON_MANAGERS.some((dm) => parentCmd.toLowerCase().includes(dm));
-    } catch {
-      return false;
-    }
-  }
-
-  // Unix: walk up the tree
-  const visited = new Set();
-  let currentPid = pid;
-
-  while (currentPid > 1 && !visited.has(currentPid)) {
-    visited.add(currentPid);
-    try {
-      const info = execSync(`ps -o ppid=,comm= -p ${currentPid}`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim();
-
-      const parts = info.trim().split(/\s+/);
-      if (parts.length < 2) break;
-
-      const parentPid = parseInt(parts[0], 10);
-      const comm = parts.slice(1).join(' ').toLowerCase();
-
-      if (DAEMON_MANAGERS.some((dm) => comm.includes(dm))) {
-        return true;
-      }
-
-      if (isNaN(parentPid) || parentPid <= 1) break;
-      currentPid = parentPid;
-    } catch {
-      break;
-    }
-  }
-
-  return false;
+function hasDaemonAncestorTree(pid, tree) {
+  return tree.hasAncestorMatching(pid, (proc) => {
+    const comm = proc.cmd.split(/\s+/)[0].split('/').pop().toLowerCase();
+    return DAEMON_MANAGERS.some((dm) => comm.includes(dm));
+  });
 }
 
 /**
- * Check if a process is running inside a Docker container.
- * Linux only: compares PID namespace with init (PID 1).
+ * Check if running inside a Docker container (Linux only).
  */
 function isInDocker(pid) {
   if (platform !== 'linux') return false;
-
   try {
     const procNs = fs.readlinkSync(`/proc/${pid}/ns/pid`);
     const initNs = fs.readlinkSync('/proc/1/ns/pid');
@@ -138,41 +87,13 @@ function isNohup(cmdline) {
 }
 
 /**
- * Check if a process is a child of VS Code.
+ * Check for VS Code ancestor via ProcessTree.
  */
-function isVSCodeChild(pid) {
-  if (platform === 'win32') return false;
-
-  const visited = new Set();
-  let currentPid = pid;
-
-  while (currentPid > 1 && !visited.has(currentPid)) {
-    visited.add(currentPid);
-    try {
-      const info = execSync(`ps -o ppid=,comm= -p ${currentPid}`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      }).trim();
-
-      const parts = info.trim().split(/\s+/);
-      if (parts.length < 2) break;
-
-      const parentPid = parseInt(parts[0], 10);
-      const comm = parts.slice(1).join(' ').toLowerCase();
-
-      // VS Code process names: code, code-insiders, electron (Code.app)
-      if (/\b(code|code-insiders|electron.*code)\b/.test(comm)) {
-        return true;
-      }
-
-      if (isNaN(parentPid) || parentPid <= 1) break;
-      currentPid = parentPid;
-    } catch {
-      break;
-    }
-  }
-
-  return false;
+function isVSCodeChildTree(pid, tree) {
+  return tree.hasAncestorMatching(pid, (proc) => {
+    const comm = proc.cmd.split(/\s+/)[0].split('/').pop().toLowerCase();
+    return /\b(code|code-insiders|electron.*code)\b/.test(comm);
+  });
 }
 
-module.exports = { isWhitelisted, hasDaemonAncestor, isInDocker, isNohup, isVSCodeChild };
+module.exports = { isWhitelisted, isInDocker, isNohup };
