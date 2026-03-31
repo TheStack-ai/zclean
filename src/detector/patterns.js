@@ -156,9 +156,11 @@ const PATTERNS = [
   },
 
   // Node processes with AI tool paths — orphan + age/memory gated
+  // match: node running from AI dirs, MCP servers, or agent paths
+  // aiPathRequired adds a second gate via AI_DIR_REGEX
   {
     name: 'node-ai-path',
-    match: /node\b/,
+    match: /node\b.*(?:[/\\]mcp[/\\]|[/\\]agent[/\\]|[/\\]server[/\\])/,
     minAge: 0,
     maxOrphanAge: '24h',
     memThreshold: '500MB',

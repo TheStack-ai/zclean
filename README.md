@@ -126,10 +126,12 @@ Your `node server.js` running in a terminal tab? Untouched. Your `vite dev` in t
   "whitelist": [],
   "maxAge": "24h",
   "memoryThreshold": "500MB",
+  "maxKillBatch": 20,
   "schedule": "hourly",
   "sigterm_timeout": 10,
   "dryRunDefault": true,
-  "logRetention": "30d"
+  "logRetention": "30d",
+  "customAiDirs": []
 }
 ```
 
@@ -138,8 +140,10 @@ Your `node server.js` running in a terminal tab? Untouched. Your `vite dev` in t
 | `whitelist` | `[]` | Process name patterns to never kill |
 | `maxAge` | `"24h"` | Kill orphan `node`/`esbuild` only after this age |
 | `memoryThreshold` | `"500MB"` | Flag orphans above this RAM usage regardless of age |
+| `maxKillBatch` | `20` | Max processes to kill per invocation (safety limit) |
 | `sigterm_timeout` | `10` | Seconds to wait after SIGTERM before SIGKILL |
 | `dryRunDefault` | `true` | Manual `zclean` runs in dry-run mode |
+| `customAiDirs` | `[]` | Additional AI tool directories to detect (e.g. `[".mytool"]`) |
 
 ## FAQ
 
@@ -150,7 +154,7 @@ No. `zclean` checks if the parent process is alive. Active sessions and their ch
 If you started it in a terminal, tmux, or VS Code — it has a living parent and won't be touched. Only orphaned dev servers (parent process dead for 24h+) are candidates.
 
 ### Does the hourly scheduler slow my machine?
-No. It runs a single process scan (~100ms), cleans if needed, and exits. No persistent daemon.
+No. It runs a single process scan (~60ms), cleans if needed, and exits. No persistent daemon.
 
 ### How do I stop zclean completely?
 ```bash
@@ -162,11 +166,13 @@ npm uninstall -g zclean
 
 | Tool | Cleanup Coverage |
 |------|-----------------|
-| Claude Code | MCP servers, sub-agents, agent-browser, playwright |
-| Codex | codex exec, background node workers |
-| Build tools | esbuild, vite, webpack, next dev (orphaned only) |
+| Claude Code | MCP servers, sub-agents (`--print`), sessions (`--session-id`), agent-browser, playwright |
+| Codex | codex exec, codex-sandbox |
+| Aider | orphaned aider/python processes |
+| Gemini CLI | orphaned gemini processes |
+| Build tools | esbuild, vite, webpack, next dev (AI tool paths only) |
 | MCP servers | Any `mcp-server-*` pattern |
-| Runtimes | node, tsx, ts-node, bun, deno, python (AI tool paths only) |
+| Runtimes | node, tsx, ts-node, bun, deno (AI tool paths only) |
 
 ## Contributing
 

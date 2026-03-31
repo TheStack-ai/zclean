@@ -89,7 +89,7 @@ function scan(config, opts = {}) {
       name: pattern.name,
       cmd: proc.cmd,
       ppid: orphanResult.ppid,
-      mem: proc.rss || proc.mem || 0,
+      mem: proc.mem || 0,
       age: proc.age,
       startTime: proc.startTime,
       reason: reasons.join(', '),

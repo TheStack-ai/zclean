@@ -16,7 +16,7 @@ const platform = os.platform();
  */
 class ProcessTree {
   /**
-   * @param {Array<{pid: number, ppid: number, cmd: string, rss: number, age: number, startTime: string|null}>} processes
+   * @param {Array<{pid: number, ppid: number, cmd: string, mem: number, age: number, startTime: string|null}>} processes
    */
   constructor(processes) {
     /** @type {Map<number, object>} */
@@ -206,7 +206,7 @@ class ProcessTree {
         pid,
         ppid,
         cmd,
-        rss: rssKB * 1024, // KB → bytes
+        mem: rssKB * 1024, // KB → bytes
         age: parseElapsed(elapsed),
         startTime,
       });
@@ -281,7 +281,7 @@ class ProcessTree {
         pid,
         ppid: isNaN(ppid) ? 0 : ppid,
         cmd,
-        rss: workingSet || 0,
+        mem: workingSet || 0,
         age: ageMs,
         startTime,
       });

@@ -93,7 +93,7 @@ function reportDryRun(zombies) {
  * Report kill results.
  */
 function reportKill(results) {
-  const { killed, failed, skipped } = results;
+  const { killed, failed, skipped, warning } = results;
 
   if (killed.length === 0 && failed.length === 0 && skipped.length === 0) {
     console.log(c('green', '  No zombie processes to clean.'));
@@ -101,6 +101,11 @@ function reportKill(results) {
   }
 
   console.log();
+
+  if (warning) {
+    console.log(c('yellow', `  ${warning}`));
+    console.log();
+  }
 
   if (killed.length > 0) {
     const totalMem = killed.reduce((sum, p) => sum + p.mem, 0);
