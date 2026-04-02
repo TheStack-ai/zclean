@@ -5,7 +5,7 @@ Thanks for your interest in making AI coding tools less wasteful.
 ## Getting Started
 
 ```bash
-git clone https://github.com/whynowlab/zclean.git
+git clone https://github.com/thestack-ai/zclean.git
 cd zclean
 node bin/zclean.js --help
 ```

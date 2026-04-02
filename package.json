@@ -15,11 +15,11 @@
     "ai-tools",
     "mcp"
   ],
-  "author": "whynowlab",
+  "author": "thestack-ai",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/whynowlab/zclean.git"
+    "url": "https://github.com/thestack-ai/zclean.git"
   },
   "engines": {
     "node": ">=18"

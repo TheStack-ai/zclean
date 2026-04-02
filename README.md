@@ -197,6 +197,6 @@ MIT — see [LICENSE](LICENSE).
 
 <div align="center">
 
-Built by [whynowlab](https://github.com/whynowlab) — the team behind [Swing](https://github.com/whynowlab/swing-skills).
+Built by [thestack-ai](https://github.com/thestack-ai) — the team behind [Swing](https://github.com/thestack-ai/swing-skills).
 
 </div>

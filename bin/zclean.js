@@ -359,7 +359,7 @@ function printHelp() {
   ${bold('Config:')}  ~/.zclean/config.json
   ${bold('Logs:')}    ~/.zclean/history.jsonl
 
-  ${bold('Docs:')}    https://github.com/whynowlab/zclean
+  ${bold('Docs:')}    https://github.com/thestack-ai/zclean
 `);
 }
 

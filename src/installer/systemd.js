@@ -39,7 +39,7 @@ function resolveZcleanBin() {
 function generateService(binPath) {
   return `[Unit]
 Description=zclean - AI coding tool zombie process cleaner
-Documentation=https://github.com/whynowlab/zclean
+Documentation=https://github.com/thestack-ai/zclean
 
 [Service]
 Type=oneshot
@@ -56,7 +56,7 @@ StandardError=append:%h/.zclean/systemd.log
 function generateTimer() {
   return `[Unit]
 Description=Run zclean hourly
-Documentation=https://github.com/whynowlab/zclean
+Documentation=https://github.com/thestack-ai/zclean
 
 [Timer]
 OnCalendar=hourly
