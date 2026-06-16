@@ -33,6 +33,33 @@ describe('ProcessTree', () => {
     });
   });
 
+  // ── fromWindows / fromCIM (Windows enumeration) ─────────────────
+  describe('fromWindows / fromCIM', () => {
+    it('fromWindows returns a ProcessTree without throwing on any platform', () => {
+      assert.ok(ProcessTree.fromWindows() instanceof ProcessTree);
+    });
+
+    it('fromCIM returns a ProcessTree without throwing on any platform', () => {
+      assert.ok(ProcessTree.fromCIM() instanceof ProcessTree);
+    });
+
+    if (process.platform === 'win32') {
+      it('fromCIM enumerates live processes on Windows (no wmic required)', () => {
+        const tree = ProcessTree.fromCIM();
+        assert.ok(tree.byPid.size > 0, 'CIM tree should contain processes');
+      });
+
+      it('build() yields a non-empty tree on Windows (wmic or CIM fallback)', () => {
+        const tree = ProcessTree.build();
+        assert.ok(tree.byPid.size > 0, 'build() must enumerate processes on Windows');
+      });
+
+      it('fromCIM excludes its own PID', () => {
+        assert.equal(ProcessTree.fromCIM().get(process.pid), null);
+      });
+    }
+  });
+
   // ── get(pid) ────────────────────────────────────────────────────
   describe('get', () => {
     it('returns process info for existing PID', () => {
