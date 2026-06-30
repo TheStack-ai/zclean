@@ -3,7 +3,7 @@
   "version": "0.3.0",
   "description": "AI coding runtime hygiene reports, zombie cleanup, and safe workspace cache cleanup",
   "bin": {
-    "zclean": "./bin/zclean.js"
+    "zclean": "bin/zclean.js"
   },
   "scripts": {
     "test": "node --test test/patterns.test.js test/scanner.test.js test/process-tree.test.js test/killer.test.js test/config.test.js test/installer-fallback.test.js test/cli.test.js test/cli-history-protect.test.js test/cli-doctor.test.js test/audit.test.js test/cache.test.js",
