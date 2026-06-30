@@ -40,6 +40,7 @@
   "files": [
     "bin/",
     "src/",
+    "assets/zclean-hero.png",
     "LICENSE",
     "README.md",
     "README.ko.md",

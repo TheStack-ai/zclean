@@ -17,13 +17,14 @@ AI coding runtime hygiene
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
 [![Tests](https://img.shields.io/badge/tests-99%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
+[![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
 [English](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
 </div>
 
 <p align="center">
-  <img src="assets/demo.gif" alt="zclean demo showing AI runtime cleanup candidates" width="620">
+  <img src="assets/zclean-hero.png" alt="zclean AI coding runtime hygiene banner" width="960">
 </p>
 
 ---
