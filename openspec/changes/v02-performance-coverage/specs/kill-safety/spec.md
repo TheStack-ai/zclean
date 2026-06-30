@@ -41,7 +41,7 @@ The `installLaunchd()` function SHALL use an absolute path to the zclean binary 
 
 #### Scenario: npx fallback
 - **WHEN** zclean is not found at any known location
-- **THEN** the plist SHALL use `npx zclean` as fallback
+- **THEN** installer SHALL fail closed with a local-install message instead of writing a remote-resolving fallback
 - **THEN** the PATH environment in the plist SHALL include `/opt/homebrew/bin` and `~/.local/bin`
 
 #### Scenario: Existing resolveZcleanBin function

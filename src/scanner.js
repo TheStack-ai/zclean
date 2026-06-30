@@ -19,6 +19,12 @@ function scan(config, opts = {}) {
   const tree = ProcessTree.build();
   const aiDirRegex = buildAiDirRegex(config.customAiDirs);
   const zombies = [];
+  const warnings = Array.isArray(tree.warnings) ? [...tree.warnings] : [];
+  const errors = Array.isArray(tree.errors) ? [...tree.errors] : [];
+  const sessionPid = normalizePid(opts.sessionPid);
+  const session = sessionPid
+    ? { pid: sessionPid, filtered: true, matched: 0, excluded: 0, unattributed: 0 }
+    : null;
 
   // Multiplexer detection function for tree queries
   const isMultiplexer = (proc) => {
@@ -37,9 +43,22 @@ function scan(config, opts = {}) {
 
     // Check orphan status via tree (no execSync)
     const orphanResult = tree.isOrphan(proc.pid);
+    const sessionRelated = sessionPid
+      ? tree.hasAncestorMatching(proc.pid, (p) => p.pid === sessionPid)
+      : false;
 
     // If pattern requires orphan status and process isn't orphaned, skip
-    if (pattern.orphanOnly && !orphanResult.isOrphan) continue;
+    if (pattern.orphanOnly && !orphanResult.isOrphan && !sessionRelated) continue;
+
+    if (sessionPid && !sessionRelated) {
+      if (orphanResult.isOrphan) {
+        session.unattributed++;
+      } else {
+        session.excluded++;
+      }
+      continue;
+    }
+    if (sessionRelated) session.matched++;
 
     // tmux/screen protection — but NOT for orphans (PPID=1).
     // If a process is orphaned, it's already detached from any tmux session,
@@ -50,39 +69,16 @@ function scan(config, opts = {}) {
     const whitelistResult = isWhitelisted(proc, config, tree);
     if (whitelistResult.protected) continue;
 
-    // Check maxOrphanAge if defined on the pattern
-    if (pattern.maxOrphanAge) {
-      const maxAge = parseDuration(pattern.maxOrphanAge);
-      if (maxAge && proc.age < maxAge) continue;
-    }
-
-    // Check memory threshold for node-ai-path pattern
-    if (pattern.memThreshold) {
-      const threshold = parseMemory(pattern.memThreshold);
-      if (threshold && proc.mem < threshold) {
-        // Also check if age exceeds maxOrphanAge
-        if (pattern.maxOrphanAge) {
-          const maxAge = parseDuration(pattern.maxOrphanAge);
-          if (maxAge && proc.age < maxAge) continue;
-        } else {
-          continue;
-        }
-      }
-    }
-
-    // Session affinity via tree (no execSync)
-    if (opts.sessionPid) {
-      proc.sessionRelated = tree.hasAncestorMatching(proc.pid, (p) => p.pid === opts.sessionPid);
-    }
+    const threshold = evaluateThresholds(pattern, config, proc);
+    if (!threshold.passed) continue;
 
     // Build reason string
     const reasons = [];
     reasons.push(`pattern:${pattern.name}`);
+    if (sessionRelated) reasons.push(`session-pid:${sessionPid}`);
     if (orphanResult.isOrphan) reasons.push(`orphan:${orphanResult.reason}`);
-    if (proc.age > parseDuration(config.maxAge || '24h')) reasons.push('age-exceeded');
-    if (parseMemory(config.memoryThreshold) && proc.mem > parseMemory(config.memoryThreshold)) {
-      reasons.push('memory-exceeded');
-    }
+    if (threshold.ageExceeded) reasons.push('age-exceeded');
+    if (threshold.memoryExceeded) reasons.push('memory-exceeded');
 
     zombies.push({
       pid: proc.pid,
@@ -97,7 +93,60 @@ function scan(config, opts = {}) {
     });
   }
 
+  if (session && session.unattributed > 0) {
+    warnings.push({
+      code: 'session-attribution-gap',
+      sessionPid,
+      count: session.unattributed,
+      message: `${session.unattributed} candidate process${session.unattributed === 1 ? '' : 'es'} could not be proven related to session PID ${sessionPid}`,
+    });
+  }
+
+  return attachDiagnostics(zombies, { warnings, errors, session });
+}
+
+function normalizePid(value) {
+  const pid = Number(value);
+  return Number.isInteger(pid) && pid > 0 ? pid : null;
+}
+
+function evaluateThresholds(pattern, config, proc) {
+  const maxAgeValue = getPatternMaxAge(pattern, config);
+  const memoryValue = getPatternMemoryThreshold(pattern, config);
+  const maxAge = maxAgeValue ? parseDuration(maxAgeValue) : null;
+  const memoryThreshold = memoryValue ? parseMemory(memoryValue) : null;
+  const ageExceeded = Boolean(maxAge && proc.age >= maxAge);
+  const memoryExceeded = Boolean(memoryThreshold && proc.mem >= memoryThreshold);
+
+  if (maxAge && memoryThreshold) {
+    return { passed: ageExceeded || memoryExceeded, ageExceeded, memoryExceeded };
+  }
+  if (maxAge) return { passed: ageExceeded, ageExceeded, memoryExceeded: false };
+  if (memoryThreshold) return { passed: memoryExceeded, ageExceeded: false, memoryExceeded };
+  return { passed: true, ageExceeded: false, memoryExceeded: false };
+}
+
+function getPatternMaxAge(pattern, config) {
+  if (!pattern.maxOrphanAge) return null;
+  if (pattern.aiPathRequired && config.maxAge) return config.maxAge;
+  return pattern.maxOrphanAge;
+}
+
+function getPatternMemoryThreshold(pattern, config) {
+  if (!pattern.memThreshold) return null;
+  return config.memoryThreshold || pattern.memThreshold;
+}
+
+function attachDiagnostics(zombies, diagnostics) {
+  zombies.warnings = diagnostics.warnings || [];
+  zombies.errors = diagnostics.errors || [];
+  zombies.enumerationFailed = hasScanErrors(zombies);
+  if (diagnostics.session) zombies.session = diagnostics.session;
   return zombies;
 }
 
-module.exports = { scan };
+function hasScanErrors(result) {
+  return Array.isArray(result?.errors) && result.errors.length > 0;
+}
+
+module.exports = { scan, hasScanErrors };

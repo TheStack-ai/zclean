@@ -65,10 +65,54 @@ function truncate(str, maxLen = 80) {
   return str.substring(0, maxLen - 3) + '...';
 }
 
+function getDiagnostics(result) {
+  return {
+    warnings: Array.isArray(result?.warnings) ? result.warnings : [],
+    errors: Array.isArray(result?.errors) ? result.errors : [],
+  };
+}
+
+function formatDiagnostic(item) {
+  if (typeof item === 'string') return item;
+  const code = item.code ? `${item.code}: ` : '';
+  const providers = Array.isArray(item.providers) && item.providers.length > 0
+    ? ` (providers: ${item.providers.join(', ')})`
+    : '';
+  return `${code}${item.message || 'process scan diagnostic'}${providers}`;
+}
+
+function reportScanDiagnostics(result) {
+  const { warnings, errors } = getDiagnostics(result);
+
+  if (warnings.length > 0) {
+    console.log(c('yellow', '  Scan warnings:'));
+    for (const warning of warnings) {
+      console.log(`    ${formatDiagnostic(warning)}`);
+    }
+    console.log();
+  }
+
+  if (errors.length > 0) {
+    console.log(c('red', '  Process enumeration failed. Scan results are incomplete.'));
+    for (const error of errors) {
+      console.log(`    ${formatDiagnostic(error)}`);
+    }
+    console.log();
+    return true;
+  }
+
+  return false;
+}
+
 /**
  * Report dry-run scan results.
  */
 function reportDryRun(zombies) {
+  if (reportScanDiagnostics(zombies)) {
+    console.log(c('yellow', '  Cleanup skipped because zclean could not inspect the process list safely.\n'));
+    return;
+  }
+
   if (zombies.length === 0) {
     console.log(c('green', '  No zombie processes found. System is clean.'));
     return;
@@ -147,7 +191,9 @@ function reportStatus(zombies, logs) {
   console.log(bold('\n  zclean status\n'));
 
   // Current zombies
-  if (zombies.length === 0) {
+  if (reportScanDiagnostics(zombies)) {
+    console.log(c('red', '  Current zombies: unknown'));
+  } else if (zombies.length === 0) {
     console.log(c('green', '  Current zombies: 0'));
   } else {
     console.log(c('yellow', `  Current zombies: ${zombies.length}`));
@@ -224,6 +270,7 @@ module.exports = {
   reportStatus,
   reportLogs,
   reportConfig,
+  reportScanDiagnostics,
   formatBytes,
   formatDuration,
   C,

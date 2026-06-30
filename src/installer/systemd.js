@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+const { LOCAL_BIN_HINT, quoteSystemdArg, resolveZcleanBin } = require('./bin-path');
 
 const SYSTEMD_USER_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
 const SERVICE_NAME = 'zclean';
@@ -11,39 +12,16 @@ const SERVICE_PATH = path.join(SYSTEMD_USER_DIR, `${SERVICE_NAME}.service`);
 const TIMER_PATH = path.join(SYSTEMD_USER_DIR, `${SERVICE_NAME}.timer`);
 
 /**
- * Resolve the full path to the zclean binary.
- */
-function resolveZcleanBin() {
-  try {
-    const npmBin = execSync('npm bin -g', { encoding: 'utf-8', timeout: 5000 }).trim();
-    const globalPath = path.join(npmBin, 'zclean');
-    if (fs.existsSync(globalPath)) return globalPath;
-  } catch { /* ignore */ }
-
-  const candidates = [
-    path.join(os.homedir(), '.local', 'bin', 'zclean'),
-    '/usr/local/bin/zclean',
-    path.join(os.homedir(), '.local', 'share', 'npm', 'bin', 'zclean'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  return path.join(os.homedir(), '.local', 'bin', 'zclean');
-}
-
-/**
  * Generate the systemd service unit file.
  */
 function generateService(binPath) {
   return `[Unit]
 Description=zclean - AI coding tool zombie process cleaner
-Documentation=https://github.com/thestack-ai/zclean
+Documentation=https://github.com/TheStack-ai/zclean
 
 [Service]
 Type=oneshot
-ExecStart=${binPath} --yes
+ExecStart=${quoteSystemdArg(binPath)} --yes
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin
 StandardOutput=append:%h/.zclean/systemd.log
 StandardError=append:%h/.zclean/systemd.log
@@ -56,7 +34,7 @@ StandardError=append:%h/.zclean/systemd.log
 function generateTimer() {
   return `[Unit]
 Description=Run zclean hourly
-Documentation=https://github.com/thestack-ai/zclean
+Documentation=https://github.com/TheStack-ai/zclean
 
 [Timer]
 OnCalendar=hourly
@@ -78,12 +56,15 @@ function installSystemd() {
     return { installed: false, message: 'systemd is Linux only.' };
   }
 
+  const binPath = resolveZcleanBin();
+  if (!binPath) {
+    return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
+  }
+
   // Ensure systemd user directory exists
   if (!fs.existsSync(SYSTEMD_USER_DIR)) {
     fs.mkdirSync(SYSTEMD_USER_DIR, { recursive: true });
   }
-
-  const binPath = resolveZcleanBin();
 
   // Write service and timer files
   fs.writeFileSync(SERVICE_PATH, generateService(binPath), 'utf-8');
@@ -159,4 +140,12 @@ function removeSystemd() {
   };
 }
 
-module.exports = { installSystemd, removeSystemd, SERVICE_PATH, TIMER_PATH };
+module.exports = {
+  installSystemd,
+  removeSystemd,
+  generateService,
+  generateTimer,
+  resolveZcleanBin,
+  SERVICE_PATH,
+  TIMER_PATH,
+};

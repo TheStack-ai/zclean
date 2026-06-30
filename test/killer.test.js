@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { killZombies } = require('../src/killer');
+const { killZombies, verifyProcess, killProcess } = require('../src/killer');
 
 // Fake zombies for testing batch limits (verifyProcess will fail → skipped, which is fine)
 function fakeZombies(n) {
@@ -58,5 +58,74 @@ describe('killZombies — maxKillBatch', () => {
     // Fake PIDs won't exist → skipped
     assert.equal(results.skipped.length, 2);
     assert.equal(results.killed.length, 0);
+  });
+});
+
+describe('Windows kill verification', () => {
+  it('verifies identity with CIM when WMIC is missing', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
+
+    const result = verifyProcess(proc, {
+      platform: 'win32',
+      execSync(command) {
+        if (command.includes('wmic')) throw new Error('wmic missing');
+        if (command.includes('Get-CimInstance')) {
+          return JSON.stringify({
+            ProcessId: 3210,
+            CommandLine: 'node C:\\agent\\server.js',
+            CreationDate: '2024-01-01T00:00:00.000Z',
+          });
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { valid: true, reason: 'verified' });
+  });
+
+  it('rejects a recycled Windows PID when start time changed', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
+
+    const result = verifyProcess(proc, {
+      platform: 'win32',
+      execSync(command) {
+        if (command.includes('Get-CimInstance')) {
+          return JSON.stringify({
+            ProcessId: 3210,
+            CommandLine: 'node C:\\agent\\server.js',
+            CreationDate: '2024-01-01T00:10:00.000Z',
+          });
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { valid: false, reason: 'start-time-mismatch' });
+  });
+
+  it('polls process existence without WMIC before force kill', () => {
+    const calls = [];
+    const result = killProcess(3210, 1000, {
+      platform: 'win32',
+      execSync(command) {
+        calls.push(command);
+        if (command.startsWith('taskkill /PID 3210')) return '';
+        if (command.includes('Get-CimInstance')) return '[]';
+        if (command.startsWith('timeout /T')) return '';
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { success: true, method: 'taskkill' });
+    assert.ok(calls.some((command) => command.includes('Get-CimInstance')));
+    assert.ok(!calls.some((command) => command.includes('wmic')));
   });
 });

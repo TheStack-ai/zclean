@@ -5,8 +5,10 @@ Thanks for your interest in making AI coding tools less wasteful.
 ## Getting Started
 
 ```bash
-git clone https://github.com/thestack-ai/zclean.git
+git clone https://github.com/TheStack-ai/zclean.git
 cd zclean
+npm run syntax
+npm test
 node bin/zclean.js --help
 ```
 
@@ -17,15 +19,13 @@ No `npm install` needed — zclean has zero dependencies.
 ## Development
 
 ```bash
-# Run a dry-run scan
-node bin/zclean.js
-
-# Run with cleanup
-node bin/zclean.js --yes
-
-# Check syntax of all files
-for f in bin/zclean.js src/*.js src/**/*.js; do node -c "$f" 2>/dev/null && echo "OK: $f"; done
+npm run syntax
+npm test
+npm run smoke
+npm run pack:check
 ```
+
+`npm run smoke` performs only help/version/config checks. Use `node bin/zclean.js` for a local dry-run scan, and `node bin/zclean.js --yes` only when you intentionally want to clean processes on your machine.
 
 ## Adding a New Process Pattern
 
@@ -50,7 +50,7 @@ Then open a PR with:
 
 - **One feature per PR** — keep changes focused
 - **No new dependencies** — this is a zero-dependency project by design
-- **Cross-platform** — test on macOS and Linux at minimum. If you can't test Windows, note it
+- **Cross-platform** — test on macOS, Linux, and Windows when the change touches platform behavior. If you can't test one platform, note it
 - **Safety first** — any change to kill logic must include reasoning about false positives
 
 ## Reporting Issues

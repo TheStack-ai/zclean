@@ -2,11 +2,25 @@
 'use strict';
 
 const os = require('os');
-const { scan } = require('../src/scanner');
+const { scan, hasScanErrors } = require('../src/scanner');
 const { killZombies } = require('../src/killer');
-const { loadConfig, saveConfig, readLogs, pruneLogs, CONFIG_FILE, DEFAULT_CONFIG, appendLog, getCumulativeStats } = require('../src/config');
+const {
+  loadConfig,
+  saveConfig,
+  readLogs,
+  pruneLogs,
+  DEFAULT_CONFIG,
+  appendLog,
+  getCumulativeStats,
+  getConfigFile,
+} = require('../src/config');
 const { reportDryRun, reportKill, reportStatus, reportLogs, reportConfig, c, bold } = require('../src/reporter');
 const { installHook, removeHook } = require('../src/installer/hook');
+const { runHistory, runProtect } = require('../src/commands/trust');
+const { installScheduler, uninstallScheduler } = require('../src/commands/scheduler');
+const { runDoctor } = require('../src/doctor');
+const { runAudit } = require('../src/audit');
+const { runCache } = require('../src/cache');
 
 // Platform-specific installers (lazy loaded)
 const platform = os.platform();
@@ -58,6 +72,12 @@ async function main() {
     case 'logs':
       return cmdLogs(config);
 
+    case 'history':
+      return runHistory(flags);
+
+    case 'protect':
+      return runProtect(config, flags, positional);
+
     case 'uninstall':
       return cmdUninstall();
 
@@ -66,6 +86,15 @@ async function main() {
 
     case 'doctor':
       return cmdDoctor(config);
+
+    case 'report':
+      return cmdAudit(config, 'report');
+
+    case 'audit':
+      return cmdAudit(config, 'audit');
+
+    case 'cache':
+      return cmdCache();
 
     case null:
       // Default: scan (dry-run unless --yes)
@@ -85,12 +114,20 @@ async function main() {
  * Dry-run unless --yes is passed.
  */
 function cmdScan(config) {
-  const sessionPid = flags['session-pid'] ? parseInt(flags['session-pid'], 10) : null;
+  const sessionPid = parseSessionPidFlag();
   const force = flags.yes || flags.y;
 
   console.log(bold('\n  zclean') + c('gray', ' — scanning for zombie processes...\n'));
 
   const zombies = scan(config, { sessionPid });
+
+  if (hasScanErrors(zombies)) {
+    reportDryRun(zombies);
+    appendLog({ action: 'scan-failed', errors: zombies.errors.length });
+    pruneLogs(config);
+    process.exitCode = 1;
+    return;
+  }
 
   if (force) {
     // Kill mode
@@ -105,6 +142,9 @@ function cmdScan(config) {
     reportKill(results);
   } else {
     // Dry-run mode
+    if (config.dryRunDefault === false) {
+      console.log(c('yellow', '  dryRunDefault=false is not an auto-kill switch; pass --yes to clean.\n'));
+    }
     reportDryRun(zombies);
     if (zombies.length > 0) {
       appendLog({ action: 'dry-run', found: zombies.length });
@@ -125,9 +165,9 @@ function cmdInit(config) {
   const existingConfig = loadConfig();
   if (JSON.stringify(existingConfig) === JSON.stringify(DEFAULT_CONFIG)) {
     saveConfig(DEFAULT_CONFIG);
-    console.log(c('green', '  Config created:') + ` ${CONFIG_FILE}`);
+    console.log(c('green', '  Config created:') + ` ${getConfigFile()}`);
   } else {
-    console.log(c('gray', '  Config exists:') + ` ${CONFIG_FILE}`);
+    console.log(c('gray', '  Config exists:') + ` ${getConfigFile()}`);
   }
 
   // 2. Install Claude Code hook
@@ -136,7 +176,7 @@ function cmdInit(config) {
   console.log(`${hookIcon} ${hookResult.message}`);
 
   // 3. Install platform-specific scheduler
-  installScheduler();
+  installScheduler(platform);
 
   console.log();
 }
@@ -148,6 +188,7 @@ function cmdStatus(config) {
   const zombies = scan(config);
   const logs = readLogs(100);
   reportStatus(zombies, logs);
+  if (hasScanErrors(zombies)) process.exitCode = 1;
 }
 
 /**
@@ -169,7 +210,7 @@ function cmdUninstall() {
   console.log(`  Hook: ${hookResult.message}`);
 
   // Remove scheduler
-  uninstallScheduler();
+  uninstallScheduler(platform);
 
   console.log(c('gray', `\n  Config and logs preserved at ~/.zclean/`));
   console.log(c('gray', `  To fully remove: rm -rf ~/.zclean\n`));
@@ -179,166 +220,48 @@ function cmdUninstall() {
  * config: Show current config.
  */
 function cmdConfig(config) {
-  reportConfig(config, CONFIG_FILE);
+  reportConfig(config, getConfigFile());
 }
 
 /**
  * doctor: Self-diagnosis — check if zclean is properly set up and running.
  */
 function cmdDoctor(config) {
-  const fs = require('fs');
-  const path = require('path');
-  const { execSync } = require('child_process');
-
-  console.log(bold('\n  zclean doctor\n'));
-
-  let issues = 0;
-
-  // 1. Config file
-  if (fs.existsSync(CONFIG_FILE)) {
-    console.log(c('green', '  Config:') + `     ${CONFIG_FILE}`);
-  } else {
-    console.log(c('yellow', '  Config:') + '     not found — run `zclean init`');
-    issues++;
-  }
-
-  // 2. Claude Code hook
-  const claudeSettings = path.join(os.homedir(), '.claude', 'settings.json');
-  let hookInstalled = false;
-  if (fs.existsSync(claudeSettings)) {
-    try {
-      const settings = JSON.parse(fs.readFileSync(claudeSettings, 'utf-8'));
-      const hooks = settings.hooks?.Stop || [];
-      hookInstalled = hooks.some((h) =>
-        (h.command && h.command.includes('zclean')) ||
-        (Array.isArray(h.hooks) && h.hooks.some((sub) => sub.command && sub.command.includes('zclean')))
-      );
-    } catch { /* ignore */ }
-  }
-  if (hookInstalled) {
-    console.log(c('green', '  Hook:') + '       Claude Code SessionEnd registered');
-  } else {
-    console.log(c('yellow', '  Hook:') + '       not registered — run `zclean init`');
-    issues++;
-  }
-
-  // 3. Scheduler (platform-specific)
-  if (platform === 'darwin') {
-    const plistPath = path.join(os.homedir(), 'Library', 'LaunchAgents', 'com.zclean.hourly.plist');
-    if (fs.existsSync(plistPath)) {
-      let loaded = false;
-      try {
-        const out = execSync(`launchctl list com.zclean.hourly 2>&1`, { encoding: 'utf-8', timeout: 5000 });
-        loaded = !out.includes('Could not find');
-      } catch { /* not loaded */ }
-      if (loaded) {
-        console.log(c('green', '  Scheduler:') + '  launchd agent loaded');
-      } else {
-        console.log(c('yellow', '  Scheduler:') + '  plist exists but not loaded — run `zclean init`');
-        issues++;
-      }
-    } else {
-      console.log(c('yellow', '  Scheduler:') + '  not installed — run `zclean init`');
-      issues++;
-    }
-  } else if (platform === 'linux') {
-    const timerPath = path.join(os.homedir(), '.config', 'systemd', 'user', 'zclean.timer');
-    if (fs.existsSync(timerPath)) {
-      console.log(c('green', '  Scheduler:') + '  systemd timer installed');
-    } else {
-      console.log(c('yellow', '  Scheduler:') + '  not installed — run `zclean init`');
-      issues++;
-    }
-  }
-
-  // 4. Last run
-  const stats = getCumulativeStats();
-  if (stats.lastRun) {
-    const ago = Date.now() - new Date(stats.lastRun).getTime();
-    const agoStr = ago < 3600000 ? `${Math.floor(ago / 60000)}m ago` :
-                   ago < 86400000 ? `${Math.floor(ago / 3600000)}h ago` :
-                   `${Math.floor(ago / 86400000)}d ago`;
-    console.log(c('green', '  Last run:') + `   ${agoStr} (${stats.lastRun.slice(0, 19).replace('T', ' ')})`);
-    if (ago > 2 * 3600000) {
-      console.log(c('yellow', '              Scheduler may not be running (last run > 2h ago)'));
-      issues++;
-    }
-  } else {
-    console.log(c('gray', '  Last run:') + '   never — run `zclean --yes` to test');
-  }
-
-  // 5. Cumulative stats
-  console.log(c('cyan', '  Stats:') + `     ${stats.totalKilled} cleaned all time, ${stats.weekKilled} this week`);
-
-  // Summary
-  console.log();
-  if (issues === 0) {
-    console.log(c('green', '  All checks passed.\n'));
-  } else {
-    console.log(c('yellow', `  ${issues} issue${issues === 1 ? '' : 's'} found. Run \`zclean init\` to fix.\n`));
-  }
+  const report = runDoctor(config, { json: Boolean(flags.json) });
+  if (report.exitCode !== 0) process.exitCode = report.exitCode;
 }
 
-// ─── Platform Scheduler Install/Uninstall ───────────────────────────────────
-
-function installScheduler() {
-  switch (platform) {
-    case 'darwin': {
-      const { installLaunchd } = require('../src/installer/launchd');
-      const result = installLaunchd();
-      const icon = result.installed ? c('green', '  Scheduler:') : c('yellow', '  Scheduler:');
-      console.log(`${icon} ${result.message}`);
-      break;
-    }
-    case 'linux': {
-      const { installSystemd } = require('../src/installer/systemd');
-      const result = installSystemd();
-      const icon = result.installed ? c('green', '  Scheduler:') : c('yellow', '  Scheduler:');
-      console.log(`${icon} ${result.message}`);
-      break;
-    }
-    case 'win32': {
-      const { installTaskScheduler } = require('../src/installer/taskscheduler');
-      const result = installTaskScheduler();
-      const icon = result.installed ? c('green', '  Scheduler:') : c('yellow', '  Scheduler:');
-      console.log(`${icon} ${result.message}`);
-      break;
-    }
-    default:
-      console.log(c('yellow', `  Scheduler: Unsupported platform (${platform}). Install a cron job manually.`));
-  }
+function cmdAudit(config, commandName = 'audit') {
+  const sessionPid = parseSessionPidFlag();
+  const report = runAudit(config, { json: Boolean(flags.json), sessionPid, commandName });
+  if (!report.risk.enumerationComplete) process.exitCode = 1;
 }
 
-function uninstallScheduler() {
-  switch (platform) {
-    case 'darwin': {
-      const { removeLaunchd } = require('../src/installer/launchd');
-      const result = removeLaunchd();
-      console.log(`  Scheduler: ${result.message}`);
-      break;
-    }
-    case 'linux': {
-      const { removeSystemd } = require('../src/installer/systemd');
-      const result = removeSystemd();
-      console.log(`  Scheduler: ${result.message}`);
-      break;
-    }
-    case 'win32': {
-      const { removeTaskScheduler } = require('../src/installer/taskscheduler');
-      const result = removeTaskScheduler();
-      console.log(`  Scheduler: ${result.message}`);
-      break;
-    }
-    default:
-      console.log(c('yellow', `  Scheduler: Remove manually for ${platform}.`));
+function cmdCache() {
+  runCache({
+    root: typeof flags.path === 'string' ? flags.path : process.cwd(),
+    yes: Boolean(flags.yes || flags.y),
+    json: Boolean(flags.json),
+  });
+}
+
+function parseSessionPidFlag() {
+  if (flags['session-pid'] === undefined) return null;
+  if (flags['session-pid'] === true || flags['session-pid'] === '') {
+    console.error(c('red', '  --session-pid must be a positive integer'));
+    process.exit(1);
   }
+  const pid = Number(flags['session-pid']);
+  if (Number.isInteger(pid) && pid > 0) return pid;
+  console.error(c('red', '  --session-pid must be a positive integer'));
+  process.exit(1);
 }
 
 // ─── Help ───────────────────────────────────────────────────────────────────
 
 function printHelp() {
   console.log(`
-  ${bold('zclean')} — Automatic zombie process cleaner for AI coding tools
+  ${bold('zclean')} — AI coding runtime hygiene for agent sessions
 
   ${bold('Usage:')}
     zclean                Scan for zombies (dry-run)
@@ -346,20 +269,31 @@ function printHelp() {
     zclean init           Install hooks + scheduler
     zclean status         Show current zombies and last cleanup
     zclean logs           Show recent cleanup history
+    zclean history [--json]       Show cleanup history
+    zclean protect list [--json]  Show protected whitelist entries
+    zclean protect add <entry>    Add a whitelist entry
+    zclean protect remove <entry|--index=N>
+                          Remove a whitelist entry
     zclean uninstall      Remove hooks + scheduler
     zclean config         Show current configuration
-    zclean doctor         Check if zclean is properly set up
+    zclean doctor [--json]        Check if zclean is properly set up
+    zclean report [--json] Show AI runtime hygiene report
+    zclean audit [--json]  Alias for report
+    zclean cache [--json]  Show safe workspace cache candidates
+    zclean cache --yes     Remove supported workspace cache directories
 
   ${bold('Options:')}
     --yes, -y             Kill found zombies (default: dry-run)
     --session-pid=PID     Filter by parent session PID
+    --path=DIR            Workspace path for zclean cache
+    --json                Print machine-readable output for supported commands
     --version, -v         Show version
     --help, -h            Show this help
 
   ${bold('Config:')}  ~/.zclean/config.json
   ${bold('Logs:')}    ~/.zclean/history.jsonl
 
-  ${bold('Docs:')}    https://github.com/thestack-ai/zclean
+  ${bold('Docs:')}    https://github.com/TheStack-ai/zclean
 `);
 }
 

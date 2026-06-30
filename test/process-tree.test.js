@@ -4,6 +4,8 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree, parseElapsed } = require('../src/process-tree');
 
+const isWindows = process.platform === 'win32';
+
 // Helper: build a tree from an array of {pid, ppid, cmd} objects
 function makeTree(procs) {
   return new ProcessTree(
@@ -21,43 +23,87 @@ function makeTree(procs) {
 describe('ProcessTree', () => {
   // ── fromPS parsing ──────────────────────────────────────────────
   describe('fromPS', () => {
-    it('builds a tree from live ps output without throwing', () => {
+    it('builds a tree from live ps output without throwing', { skip: isWindows }, () => {
       const tree = ProcessTree.fromPS();
       // Should have at least the current shell and node process
       assert.ok(tree.byPid.size > 0, 'tree should contain processes');
     });
 
-    it('excludes its own PID from the tree', () => {
+    it('excludes its own PID from the tree', { skip: isWindows }, () => {
       const tree = ProcessTree.fromPS();
       assert.equal(tree.get(process.pid), null);
     });
   });
 
-  // ── fromWindows / fromCIM (Windows enumeration) ─────────────────
-  describe('fromWindows / fromCIM', () => {
-    it('fromWindows returns a ProcessTree without throwing on any platform', () => {
-      assert.ok(ProcessTree.fromWindows() instanceof ProcessTree);
+  describe('Windows enumeration', () => {
+    const sampleCimOutput = JSON.stringify([
+      {
+        ProcessId: 1234,
+        ParentProcessId: 4321,
+        CommandLine: 'node C:\\agent\\server.js',
+        WorkingSetSize: 1048576,
+        CreationDate: '2024-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    it('falls back to CIM when WMIC is missing', () => {
+      const calls = [];
+      const tree = ProcessTree.build({
+        platform: 'win32',
+        currentPid: 9999,
+        now: new Date('2024-01-01T01:00:00.000Z').getTime(),
+        execSync(command) {
+          calls.push(command);
+          if (command.includes('wmic process get')) throw new Error('wmic not found');
+          if (command.includes('Get-CimInstance')) return sampleCimOutput;
+          throw new Error(`unexpected command: ${command}`);
+        },
+      });
+
+      assert.equal(tree.get(1234).cmd, 'node C:\\agent\\server.js');
+      assert.equal(tree.errors.length, 0);
+      assert.equal(tree.warnings.length, 1);
+      assert.equal(tree.warnings[0].provider, 'wmic');
+      assert.ok(calls.some((command) => command.includes('Get-CimInstance')));
     });
 
-    it('fromCIM returns a ProcessTree without throwing on any platform', () => {
-      assert.ok(ProcessTree.fromCIM() instanceof ProcessTree);
+    it('falls back to CIM when WMIC returns no process rows', () => {
+      const tree = ProcessTree.build({
+        platform: 'win32',
+        currentPid: 9999,
+        execSync(command) {
+          if (command.includes('wmic process get')) {
+            return 'Node,CommandLine,CreationDate,ParentProcessId,ProcessId,WorkingSetSize\r\r\n';
+          }
+          if (command.includes('Get-CimInstance')) return sampleCimOutput;
+          throw new Error(`unexpected command: ${command}`);
+        },
+      });
+
+      assert.equal(tree.get(1234).ppid, 4321);
+      assert.equal(tree.errors.length, 0);
+      assert.equal(tree.warnings[0].code, 'process-enumeration-provider-empty');
+      assert.equal(tree.warnings[0].provider, 'wmic');
     });
 
-    if (process.platform === 'win32') {
-      it('fromCIM enumerates live processes on Windows (no wmic required)', () => {
-        const tree = ProcessTree.fromCIM();
-        assert.ok(tree.byPid.size > 0, 'CIM tree should contain processes');
+    it('surfaces an explicit error when all Windows providers fail', () => {
+      const tree = ProcessTree.build({
+        platform: 'win32',
+        currentPid: 9999,
+        execSync(command) {
+          if (command.includes('wmic process get')) throw new Error('wmic missing');
+          if (command.includes('Get-CimInstance')) throw new Error('cim unavailable');
+          throw new Error(`unexpected command: ${command}`);
+        },
       });
 
-      it('build() yields a non-empty tree on Windows (wmic or CIM fallback)', () => {
-        const tree = ProcessTree.build();
-        assert.ok(tree.byPid.size > 0, 'build() must enumerate processes on Windows');
-      });
-
-      it('fromCIM excludes its own PID', () => {
-        assert.equal(ProcessTree.fromCIM().get(process.pid), null);
-      });
-    }
+      assert.equal(tree.byPid.size, 0);
+      assert.ok(tree.warnings.length >= 2);
+      assert.equal(tree.errors.length, 1);
+      assert.equal(tree.errors[0].code, 'process-enumeration-failed');
+      assert.equal(tree.errors[0].platform, 'win32');
+      assert.deepEqual(tree.errors[0].providers, ['cim', 'wmic']);
+    });
   });
 
   // ── get(pid) ────────────────────────────────────────────────────

@@ -4,37 +4,11 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
+const { LOCAL_BIN_HINT, resolveZcleanBin } = require('./bin-path');
 
 const PLIST_NAME = 'com.zclean.hourly';
 const PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
 const PLIST_PATH = path.join(PLIST_DIR, `${PLIST_NAME}.plist`);
-
-/**
- * Resolve the full path to the zclean binary.
- * Tries: npx global, npm global, local install.
- */
-function resolveZcleanBin() {
-  // If installed globally via npm
-  try {
-    const npmBin = execSync('npm bin -g', { encoding: 'utf-8', timeout: 5000 }).trim();
-    const globalPath = path.join(npmBin, 'zclean');
-    if (fs.existsSync(globalPath)) return globalPath;
-  } catch { /* ignore */ }
-
-  // Check common locations
-  const candidates = [
-    path.join(os.homedir(), '.local', 'bin', 'zclean'),
-    '/usr/local/bin/zclean',
-    path.join(os.homedir(), 'node_modules', '.bin', 'zclean'),
-  ];
-
-  for (const candidate of candidates) {
-    if (fs.existsSync(candidate)) return candidate;
-  }
-
-  // Fallback to npx
-  return 'npx zclean';
-}
 
 /**
  * Resolve the active nvm node bin path, if nvm is installed.
@@ -64,10 +38,8 @@ function resolveNvmNodeBin() {
  * Generate the launchd plist XML.
  */
 function generatePlist(binPath) {
-  const parts = binPath.split(' ');
-  const programArgs = parts
-    .concat(['--yes'])
-    .map((arg) => `      <string>${arg}</string>`)
+  const programArgs = [binPath, '--yes']
+    .map((arg) => `      <string>${escapeXml(arg)}</string>`)
     .join('\n');
 
   // Build PATH with nvm node bin if available
@@ -128,12 +100,16 @@ function installLaunchd() {
     return { installed: false, message: 'launchd is macOS only.' };
   }
 
+  const binPath = resolveZcleanBin();
+  if (!binPath) {
+    return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
+  }
+
   // Ensure LaunchAgents directory exists
   if (!fs.existsSync(PLIST_DIR)) {
     fs.mkdirSync(PLIST_DIR, { recursive: true });
   }
 
-  const binPath = resolveZcleanBin();
   const plist = generatePlist(binPath);
 
   // Unload existing if present
@@ -201,4 +177,19 @@ function removeLaunchd() {
   };
 }
 
-module.exports = { installLaunchd, removeLaunchd, PLIST_PATH };
+function escapeXml(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+module.exports = {
+  installLaunchd,
+  removeLaunchd,
+  generatePlist,
+  resolveZcleanBin,
+  PLIST_PATH,
+};

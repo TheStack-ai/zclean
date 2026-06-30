@@ -3,10 +3,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { LOCAL_BIN_HINT, quoteShellArg, resolveZcleanBin } = require('./bin-path');
 
 const CLAUDE_SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json');
-// Use npx to ensure zclean is found regardless of global install status
-const HOOK_COMMAND = 'npx --yes @thestackai/zclean --yes --session-pid=$PPID';
 const HOOK_ID = 'zclean-session-cleanup';
 
 /**
@@ -71,13 +70,21 @@ function installHook() {
     };
   }
 
+  const binPath = resolveZcleanBin();
+  if (!binPath) {
+    return {
+      installed: false,
+      message: `Local zclean executable not found. ${LOCAL_BIN_HINT}`,
+    };
+  }
+
   // Add hook using the matcher + hooks array format required by Claude Code
   settings.hooks.Stop.push({
     matcher: '',
     hooks: [
       {
         type: 'command',
-        command: HOOK_COMMAND,
+        command: buildHookCommand(binPath),
       },
     ],
   });
@@ -133,4 +140,8 @@ function removeHook() {
   return { removed: true, message: 'Hook removed from Claude Code settings.' };
 }
 
-module.exports = { installHook, removeHook };
+function buildHookCommand(binPath) {
+  return `${quoteShellArg(binPath)} --yes --session-pid=$PPID`;
+}
+
+module.exports = { installHook, removeHook, buildHookCommand };

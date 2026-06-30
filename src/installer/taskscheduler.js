@@ -1,31 +1,25 @@
 'use strict';
 
-const { execSync } = require('child_process');
-const path = require('path');
+const { execFileSync } = require('child_process');
 const os = require('os');
-const fs = require('fs');
+const { LOCAL_BIN_HINT, resolveZcleanBin } = require('./bin-path');
 
 const TASK_NAME = 'zclean-hourly';
 
-/**
- * Resolve the full path to the zclean binary on Windows.
- */
-function resolveZcleanBin() {
-  // Check npm global
-  try {
-    const npmPrefix = execSync('npm prefix -g', { encoding: 'utf-8', timeout: 5000 }).trim();
-    const candidate = path.join(npmPrefix, 'zclean.cmd');
-    if (fs.existsSync(candidate)) return candidate;
-    const candidate2 = path.join(npmPrefix, 'node_modules', '.bin', 'zclean.cmd');
-    if (fs.existsSync(candidate2)) return candidate2;
-  } catch { /* ignore */ }
+function buildCreateTaskArgs(binPath) {
+  return [
+    '/create',
+    '/TN', TASK_NAME,
+    '/SC', 'HOURLY',
+    '/TR', formatTaskRunCommand(binPath),
+    '/F',
+  ];
+}
 
-  // Check AppData local
-  const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming');
-  const npmGlobal = path.join(appData, 'npm', 'zclean.cmd');
-  if (fs.existsSync(npmGlobal)) return npmGlobal;
-
-  return 'npx zclean';
+function formatTaskRunCommand(binPath) {
+  const text = String(binPath);
+  const command = /\s/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+  return `${command} --yes`;
 }
 
 /**
@@ -41,22 +35,14 @@ function installTaskScheduler() {
   }
 
   const binPath = resolveZcleanBin();
+  if (!binPath) {
+    return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
+  }
 
-  // Build schtasks command
-  // /SC HOURLY — run every hour
-  // /TN — task name
-  // /TR — task to run
-  // /F — force overwrite if exists
-  const command = [
-    'schtasks', '/create',
-    '/TN', `"${TASK_NAME}"`,
-    '/SC', 'HOURLY',
-    '/TR', `"${binPath} --yes"`,
-    '/F',
-  ].join(' ');
+  const args = buildCreateTaskArgs(binPath);
 
   try {
-    execSync(command, { encoding: 'utf-8', timeout: 10000 });
+    execFileSync('schtasks', args, { encoding: 'utf-8', timeout: 10000 });
     return {
       installed: true,
       message: `Task Scheduler task created: ${TASK_NAME} (hourly)`,
@@ -80,7 +66,7 @@ function removeTaskScheduler() {
   }
 
   try {
-    execSync(`schtasks /delete /TN "${TASK_NAME}" /F`, {
+    execFileSync('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], {
       encoding: 'utf-8',
       timeout: 10000,
     });
@@ -99,4 +85,11 @@ function removeTaskScheduler() {
   }
 }
 
-module.exports = { installTaskScheduler, removeTaskScheduler, TASK_NAME };
+module.exports = {
+  installTaskScheduler,
+  removeTaskScheduler,
+  resolveZcleanBin,
+  buildCreateTaskArgs,
+  formatTaskRunCommand,
+  TASK_NAME,
+};

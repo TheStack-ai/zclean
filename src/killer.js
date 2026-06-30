@@ -3,6 +3,7 @@
 const { execSync } = require('child_process');
 const os = require('os');
 const { appendLog } = require('./config');
+const { normalizePid, readWindowsProcess, windowsProcessExists } = require('./windows-processes');
 
 const platform = os.platform();
 
@@ -92,17 +93,18 @@ function killZombies(zombies, config) {
  * Re-verify a process before killing it.
  * Ensures we don't kill a recycled PID or wrong process.
  */
-function verifyProcess(proc) {
-  if (platform === 'win32') {
-    return verifyProcessWindows(proc);
+function verifyProcess(proc, options = {}) {
+  const runtime = runtimeOptions(options);
+  if (runtime.platform === 'win32') {
+    return verifyProcessWindows(proc, runtime);
   }
-  return verifyProcessUnix(proc);
+  return verifyProcessUnix(proc, runtime);
 }
 
-function verifyProcessUnix(proc) {
+function verifyProcessUnix(proc, runtime = runtimeOptions()) {
   try {
     // Check if PID still exists and get its command line
-    const cmd = execSync(`ps -o command= -p ${proc.pid}`, {
+    const cmd = runtime.execSync(`ps -o command= -p ${proc.pid}`, {
       encoding: 'utf-8',
       timeout: 5000,
     }).trim();
@@ -122,7 +124,7 @@ function verifyProcessUnix(proc) {
     // Verify start time if available
     if (proc.startTime) {
       try {
-        const lstart = execSync(`ps -o lstart= -p ${proc.pid}`, {
+        const lstart = runtime.execSync(`ps -o lstart= -p ${proc.pid}`, {
           encoding: 'utf-8',
           timeout: 5000,
         }).trim();
@@ -141,30 +143,29 @@ function verifyProcessUnix(proc) {
   }
 }
 
-function verifyProcessWindows(proc) {
-  try {
-    const output = execSync(
-      `wmic process where ProcessId=${proc.pid} get CommandLine /value`,
-      { encoding: 'utf-8', timeout: 5000 }
-    ).trim();
-
-    const match = output.match(/CommandLine=(.+)/);
-    if (!match) {
-      return { valid: false, reason: 'process-gone' };
-    }
-
-    const currentCmd = match[1].trim();
-    const scanPrefix = proc.cmd.substring(0, 50);
-    const currentPrefix = currentCmd.substring(0, 50);
-
-    if (scanPrefix !== currentPrefix) {
-      return { valid: false, reason: 'cmd-mismatch' };
-    }
-
-    return { valid: true, reason: 'verified' };
-  } catch {
+function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32' })) {
+  const current = readWindowsProcess(proc.pid, runtime);
+  if (!current) {
     return { valid: false, reason: 'process-gone' };
   }
+
+  const currentCmd = String(current.cmd || '').trim();
+  const scanPrefix = proc.cmd.substring(0, 50);
+  const currentPrefix = currentCmd.substring(0, 50);
+
+  if (scanPrefix !== currentPrefix) {
+    return { valid: false, reason: 'cmd-mismatch' };
+  }
+
+  if (proc.startTime && current.startTime && current.startTime !== proc.startTime) {
+    return { valid: false, reason: 'start-time-mismatch' };
+  }
+
+  if (proc.startTime && !current.startTime) {
+    return { valid: false, reason: 'start-time-unverified' };
+  }
+
+  return { valid: true, reason: 'verified' };
 }
 
 /**
@@ -173,14 +174,15 @@ function verifyProcessWindows(proc) {
  * macOS/Linux: SIGTERM → wait → SIGKILL
  * Windows: taskkill → wait → taskkill /F
  */
-function killProcess(pid, timeoutMs) {
-  if (platform === 'win32') {
-    return killProcessWindows(pid, timeoutMs);
+function killProcess(pid, timeoutMs, options = {}) {
+  const runtime = runtimeOptions(options);
+  if (runtime.platform === 'win32') {
+    return killProcessWindows(pid, timeoutMs, runtime);
   }
-  return killProcessUnix(pid, timeoutMs);
+  return killProcessUnix(pid, timeoutMs, runtime);
 }
 
-function killProcessUnix(pid, timeoutMs) {
+function killProcessUnix(pid, timeoutMs, runtime = runtimeOptions()) {
   try {
     // Send SIGTERM
     process.kill(pid, 'SIGTERM');
@@ -199,7 +201,7 @@ function killProcessUnix(pid, timeoutMs) {
       // process.kill(pid, 0) throws if process doesn't exist
       process.kill(pid, 0);
       // Still alive — blocking sleep to avoid CPU spin
-      try { execSync('sleep 0.5', { timeout: 2000 }); } catch { /* ignore */ }
+      try { runtime.execSync('sleep 0.5', { timeout: 2000 }); } catch { /* ignore */ }
     } catch {
       // Process is gone
       return { success: true, method: 'sigterm' };
@@ -218,36 +220,45 @@ function killProcessUnix(pid, timeoutMs) {
   }
 }
 
-function killProcessWindows(pid, timeoutMs) {
+function killProcessWindows(pid, timeoutMs, runtime = runtimeOptions({ platform: 'win32' })) {
+  const safePid = normalizePid(pid);
+  if (!safePid) {
+    return { success: false, error: `Invalid PID: ${pid}` };
+  }
+
   try {
     // Graceful kill
-    execSync(`taskkill /PID ${pid}`, { encoding: 'utf-8', timeout: 5000 });
+    runtime.execSync(`taskkill /PID ${safePid}`, { encoding: 'utf-8', timeout: 5000 });
   } catch {
     // Might fail — try force kill directly
   }
 
   // Wait
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      execSync(`wmic process where ProcessId=${pid} get ProcessId /value`, {
-        encoding: 'utf-8',
-        timeout: 3000,
-      });
-      // Still alive — blocking wait to avoid CPU spin
-      try { execSync('timeout /T 1 /NOBREAK >nul', { timeout: 3000 }); } catch { /* ignore */ }
-    } catch {
+  const deadline = runtime.now() + timeoutMs;
+  while (runtime.now() < deadline) {
+    const exists = windowsProcessExists(safePid, runtime);
+    if (exists === false) {
       return { success: true, method: 'taskkill' };
     }
+    if (exists === null) break;
+    try { runtime.execSync('timeout /T 1 /NOBREAK >nul', { timeout: 3000 }); } catch { /* ignore */ }
   }
 
   // Force kill
   try {
-    execSync(`taskkill /F /PID ${pid}`, { encoding: 'utf-8', timeout: 5000 });
+    runtime.execSync(`taskkill /F /PID ${safePid}`, { encoding: 'utf-8', timeout: 5000 });
     return { success: true, method: 'taskkill-force' };
   } catch (err) {
     return { success: false, error: `Force kill failed: ${err.message}` };
   }
+}
+
+function runtimeOptions(options = {}) {
+  return {
+    execSync: options.execSync || execSync,
+    platform: options.platform || platform,
+    now: typeof options.now === 'function' ? options.now : () => Date.now(),
+  };
 }
 
 module.exports = { killZombies, verifyProcess, killProcess };

@@ -4,20 +4,34 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-// Config directory: ~/.zclean/
-const CONFIG_DIR = path.join(os.homedir(), '.zclean');
-const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
-const LOG_FILE = path.join(CONFIG_DIR, 'history.jsonl');
+const CONFIG_DIR_ENV = 'ZCLEAN_CONFIG_DIR';
+
+function getConfigDir() {
+  const configured = process.env[CONFIG_DIR_ENV];
+  if (configured) return path.resolve(configured);
+  if (process.env.NODE_TEST_CONTEXT) {
+    return path.join(os.tmpdir(), 'zclean-node-test', String(process.pid));
+  }
+  return path.join(os.homedir(), '.zclean');
+}
+
+function getConfigFile() {
+  return path.join(getConfigDir(), 'config.json');
+}
+
+function getLogFile() {
+  return path.join(getConfigDir(), 'history.jsonl');
+}
 
 const DEFAULT_CONFIG = {
   whitelist: [],
   maxAge: '24h',
   memoryThreshold: '500MB',
-  schedule: 'hourly',
   sigterm_timeout: 10,
   dryRunDefault: true,
   logRetention: '30d',
   maxKillBatch: 20,
+  customAiDirs: [],
 };
 
 /**
@@ -54,8 +68,9 @@ function parseMemory(str) {
  * Ensure the config directory exists.
  */
 function ensureConfigDir() {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
+  const configDir = getConfigDir();
+  if (!fs.existsSync(configDir)) {
+    fs.mkdirSync(configDir, { recursive: true });
   }
 }
 
@@ -64,9 +79,10 @@ function ensureConfigDir() {
  */
 function loadConfig() {
   ensureConfigDir();
-  if (fs.existsSync(CONFIG_FILE)) {
+  const configFile = getConfigFile();
+  if (fs.existsSync(configFile)) {
     try {
-      const raw = fs.readFileSync(CONFIG_FILE, 'utf-8');
+      const raw = fs.readFileSync(configFile, 'utf-8');
       const userConfig = JSON.parse(raw);
       return { ...DEFAULT_CONFIG, ...userConfig };
     } catch {
@@ -82,7 +98,7 @@ function loadConfig() {
  */
 function saveConfig(config) {
   ensureConfigDir();
-  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(getConfigFile(), JSON.stringify(config, null, 2) + '\n', 'utf-8');
 }
 
 /**
@@ -92,16 +108,17 @@ function saveConfig(config) {
 function appendLog(entry) {
   ensureConfigDir();
   const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n';
-  fs.appendFileSync(LOG_FILE, line, 'utf-8');
+  fs.appendFileSync(getLogFile(), line, 'utf-8');
 }
 
 /**
  * Read recent log entries (up to `limit`).
  */
 function readLogs(limit = 50) {
-  if (!fs.existsSync(LOG_FILE)) return [];
+  const logFile = getLogFile();
+  if (!fs.existsSync(logFile)) return [];
   try {
-    const lines = fs.readFileSync(LOG_FILE, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
     return lines
       .slice(-limit)
       .map((line) => {
@@ -118,10 +135,11 @@ function readLogs(limit = 50) {
  */
 function pruneLogs(config) {
   const retentionMs = parseDuration(config.logRetention || '30d');
-  if (!retentionMs || !fs.existsSync(LOG_FILE)) return;
+  const logFile = getLogFile();
+  if (!retentionMs || !fs.existsSync(logFile)) return;
 
   const cutoff = Date.now() - retentionMs;
-  const lines = fs.readFileSync(LOG_FILE, 'utf-8').trim().split('\n').filter(Boolean);
+  const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
   const kept = lines.filter((line) => {
     try {
       const entry = JSON.parse(line);
@@ -130,7 +148,7 @@ function pruneLogs(config) {
       return false;
     }
   });
-  fs.writeFileSync(LOG_FILE, kept.join('\n') + (kept.length ? '\n' : ''), 'utf-8');
+  fs.writeFileSync(logFile, kept.join('\n') + (kept.length ? '\n' : ''), 'utf-8');
 }
 
 /**
@@ -164,13 +182,58 @@ function getCumulativeStats() {
   return { totalKilled, totalMemFreed, weekKilled, weekMemFreed, lastRun };
 }
 
-module.exports = {
-  CONFIG_DIR,
-  CONFIG_FILE,
-  LOG_FILE,
+function summarizeHistory(logs, stats = {}) {
+  let dryRuns = 0;
+  let scans = 0;
+  let scanFailures = 0;
+  let cleanupSummaries = 0;
+  let summaryFailedKills = 0;
+  let looseFailedKills = 0;
+
+  for (const entry of logs || []) {
+    switch (entry.action) {
+      case 'dry-run':
+        dryRuns++;
+        break;
+      case 'scan':
+        scans++;
+        break;
+      case 'scan-failed':
+        scanFailures++;
+        break;
+      case 'cleanup-summary':
+        cleanupSummaries++;
+        summaryFailedKills += entry.failed || 0;
+        break;
+      case 'kill-failed':
+        looseFailedKills++;
+        break;
+      default:
+        break;
+    }
+  }
+
+  return {
+    dryRuns,
+    scans,
+    scanFailures,
+    cleanupSummaries,
+    failedKills: cleanupSummaries > 0 ? summaryFailedKills : looseFailedKills,
+    totalKilled: stats.totalKilled || 0,
+    totalMemFreed: stats.totalMemFreed || 0,
+    weekKilled: stats.weekKilled || 0,
+    weekMemFreed: stats.weekMemFreed || 0,
+    lastRun: stats.lastRun || null,
+  };
+}
+
+const exported = {
   DEFAULT_CONFIG,
   parseDuration,
   parseMemory,
+  getConfigDir,
+  getConfigFile,
+  getLogFile,
   loadConfig,
   saveConfig,
   appendLog,
@@ -178,4 +241,13 @@ module.exports = {
   pruneLogs,
   ensureConfigDir,
   getCumulativeStats,
+  summarizeHistory,
 };
+
+Object.defineProperties(exported, {
+  CONFIG_DIR: { enumerable: true, get: getConfigDir },
+  CONFIG_FILE: { enumerable: true, get: getConfigFile },
+  LOG_FILE: { enumerable: true, get: getLogFile },
+});
+
+module.exports = exported;

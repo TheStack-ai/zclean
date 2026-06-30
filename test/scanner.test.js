@@ -1,15 +1,15 @@
 'use strict';
 
-const { describe, it, beforeEach } = require('node:test');
+const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 const { scan } = require('../src/scanner');
 
 // Helper: build a tree from process list and monkey-patch ProcessTree.build
-function withMockedTree(procs, fn) {
+function withMockedTree(procs, fn, diagnostics = {}) {
   const original = ProcessTree.build;
-  ProcessTree.build = () =>
-    new ProcessTree(
+  ProcessTree.build = () => {
+    const tree = new ProcessTree(
       procs.map((p) => ({
         pid: p.pid,
         ppid: p.ppid,
@@ -19,6 +19,10 @@ function withMockedTree(procs, fn) {
         startTime: p.startTime || null,
       }))
     );
+    tree.warnings = diagnostics.warnings || [];
+    tree.errors = diagnostics.errors || [];
+    return tree;
+  };
   try {
     return fn();
   } finally {
@@ -110,6 +114,41 @@ describe('scan()', () => {
     assert.equal(result[0].name, 'tsx');
   });
 
+  it('honors customAiDirs from config', () => {
+    const procs = [
+      { pid: 2100, ppid: 1, cmd: 'tsx .myagent/tools/server.ts', age: 100000000, mem: 1024 },
+    ];
+    const result = withMockedTree(procs, () => scan({ ...baseConfig, customAiDirs: ['.myagent'] }));
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, 'tsx');
+  });
+
+  it('uses config maxAge for AI-path age-gated patterns', () => {
+    const procs = [
+      { pid: 2200, ppid: 1, cmd: 'tsx .claude/tools/server.ts', age: 2 * 60 * 60 * 1000, mem: 1024 },
+    ];
+    const result = withMockedTree(procs, () => scan({ ...baseConfig, maxAge: '1h' }));
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, 'tsx');
+    assert.match(result[0].reason, /age-exceeded/);
+  });
+
+  it('uses config memoryThreshold for AI-path memory-gated patterns', () => {
+    const procs = [
+      {
+        pid: 2300,
+        ppid: 1,
+        cmd: 'node /tmp/.claude/mcp/server/index.js',
+        age: 10 * 60 * 1000,
+        mem: 2 * 1024 * 1024,
+      },
+    ];
+    const result = withMockedTree(procs, () => scan({ ...baseConfig, memoryThreshold: '1MB' }));
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, 'node-ai-path');
+    assert.match(result[0].reason, /memory-exceeded/);
+  });
+
   it('claude --print orphan → detected as claude-subagent', () => {
     const procs = [
       { pid: 3000, ppid: 1, cmd: 'claude --print "do something"', age: 60000, mem: 2048 },
@@ -126,5 +165,35 @@ describe('scan()', () => {
     ];
     const result = withMockedTree(procs, () => scan(baseConfig));
     assert.equal(result.length, 0);
+  });
+
+  it('sessionPid limits results to processes with proven session ancestry', () => {
+    const procs = [
+      { pid: 500, ppid: 50, cmd: 'claude' },
+      { pid: 501, ppid: 500, cmd: 'bash' },
+      { pid: 3001, ppid: 501, cmd: 'claude --print "session child"', age: 60000, mem: 2048 },
+      { pid: 3002, ppid: 1, cmd: 'claude --print "unrelated orphan"', age: 60000, mem: 2048 },
+    ];
+    const result = withMockedTree(procs, () => scan(baseConfig, { sessionPid: 500 }));
+    assert.deepEqual(result.map((proc) => proc.pid), [3001]);
+    assert.match(result[0].reason, /session-pid:500/);
+    assert.equal(result.session.pid, 500);
+    assert.equal(result.session.unattributed, 1);
+    assert.ok(result.warnings.some((warning) => warning.code === 'session-attribution-gap'));
+  });
+
+  it('propagates process enumeration failures as scan diagnostics', () => {
+    const errors = [
+      {
+        code: 'process-enumeration-failed',
+        platform: 'win32',
+        providers: ['cim', 'wmic'],
+        message: 'Unable to enumerate processes',
+      },
+    ];
+    const result = withMockedTree([], () => scan(baseConfig), { errors });
+    assert.equal(result.length, 0);
+    assert.equal(result.enumerationFailed, true);
+    assert.deepEqual(result.errors, errors);
   });
 });
