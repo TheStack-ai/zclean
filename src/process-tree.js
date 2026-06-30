@@ -1,6 +1,6 @@
 'use strict';
 
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const os = require('os');
 
 const platform = os.platform();
@@ -226,7 +226,15 @@ class ProcessTree {
     try {
       output = execSync(
         'wmic process get ProcessId,ParentProcessId,CommandLine,WorkingSetSize,CreationDate /format:csv',
-        { encoding: 'utf-8', timeout: 15000, maxBuffer: 10 * 1024 * 1024 }
+        {
+          encoding: 'utf-8',
+          timeout: 15000,
+          maxBuffer: 10 * 1024 * 1024,
+          // Silence the "'wmic' is not recognized" stderr on Windows builds where
+          // wmic was removed — fromWindows() falls back to fromCIM() in that case.
+          stdio: ['ignore', 'pipe', 'ignore'],
+          windowsHide: true,
+        }
       );
     } catch {
       return new ProcessTree([]);
@@ -291,13 +299,100 @@ class ProcessTree {
   }
 
   /**
+   * Windows: build ProcessTree via Get-CimInstance (PowerShell).
+   *
+   * `wmic` is deprecated and is being removed from Windows — it is absent by
+   * default on Windows 11 24H2+ / Server 2025, where fromWMIC() silently returns
+   * an empty tree and zclean reports "0 zombies". Get-CimInstance is the supported
+   * replacement and ships in-box on every supported Windows (PowerShell 5.1+).
+   * Emits the same shape as fromWMIC()/fromPS(): {pid, ppid, cmd, mem, age, startTime}.
+   *
+   * @returns {ProcessTree}
+   */
+  static fromCIM() {
+    let output;
+    try {
+      // Built as one PowerShell pipeline; passed via -EncodedCommand to avoid any
+      // shell-quoting issues with the embedded script/format expressions.
+      const ps =
+        '$ProgressPreference=\'SilentlyContinue\';' + // suppress CLIXML progress on stderr
+        'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,' +
+        'CommandLine,WorkingSetSize,@{n=\'Created\';e={if($_.CreationDate){' +
+        '$_.CreationDate.ToUniversalTime().ToString(\'o\')}else{\'\'}}} | ConvertTo-Json -Compress';
+      const encoded = Buffer.from(ps, 'utf16le').toString('base64');
+      // execFileSync (no shell) — args passed as an array, nothing is interpolated
+      // into a shell command string.
+      output = execFileSync(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded],
+        { encoding: 'utf-8', timeout: 15000, maxBuffer: 32 * 1024 * 1024, windowsHide: true }
+      );
+    } catch {
+      return new ProcessTree([]);
+    }
+
+    let rows;
+    try {
+      rows = JSON.parse(output);
+    } catch {
+      return new ProcessTree([]);
+    }
+    if (!Array.isArray(rows)) rows = [rows]; // ConvertTo-Json emits a bare object for 1 row
+
+    const processes = [];
+    const myPid = process.pid;
+
+    for (const r of rows) {
+      const pid = parseInt(r.ProcessId, 10);
+      const cmd = r.CommandLine || '';
+      if (isNaN(pid) || pid === myPid || !cmd) continue;
+
+      const ppid = parseInt(r.ParentProcessId, 10);
+
+      let ageMs = 0;
+      let startTime = null;
+      if (r.Created) {
+        const dt = new Date(r.Created);
+        if (!isNaN(dt.getTime())) {
+          startTime = dt.toISOString();
+          ageMs = Date.now() - dt.getTime();
+        }
+      }
+
+      processes.push({
+        pid,
+        ppid: isNaN(ppid) ? 0 : ppid,
+        cmd,
+        mem: parseInt(r.WorkingSetSize, 10) || 0,
+        age: ageMs,
+        startTime,
+      });
+    }
+
+    return new ProcessTree(processes);
+  }
+
+  /**
+   * Windows factory: prefer `wmic` (fast, present on older Windows), fall back to
+   * Get-CimInstance when wmic is missing or yields nothing. Keeps the existing fast
+   * path where wmic still exists while fixing machines where it was removed.
+   *
+   * @returns {ProcessTree}
+   */
+  static fromWindows() {
+    const tree = ProcessTree.fromWMIC();
+    if (tree.byPid.size > 0) return tree;
+    return ProcessTree.fromCIM();
+  }
+
+  /**
    * Platform-aware factory. Use this from scanner/orphan/whitelist.
-   * Calls fromWMIC() on Windows, fromPS() everywhere else.
+   * Windows → wmic with Get-CimInstance fallback; otherwise fromPS().
    *
    * @returns {ProcessTree}
    */
   static build() {
-    return platform === 'win32' ? ProcessTree.fromWMIC() : ProcessTree.fromPS();
+    return platform === 'win32' ? ProcessTree.fromWindows() : ProcessTree.fromPS();
   }
 }
 
