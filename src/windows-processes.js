@@ -1,16 +1,34 @@
 'use strict';
 
+const { providerDiagnostic } = require('./process-diagnostic');
+
 function normalizePid(pid) {
   const parsed = Number(pid);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function readWMICProcesses(runtime) {
+  try {
+    runtime.execSync('where wmic', {
+      encoding: 'utf-8',
+      timeout: 5000,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+  } catch {
+    return { processes: [], warnings: [] };
+  }
+
   let output;
   try {
     output = runtime.execSync(
       'wmic process get ProcessId,ParentProcessId,CommandLine,WorkingSetSize,CreationDate /format:csv',
-      { encoding: 'utf-8', timeout: 15000, maxBuffer: 10 * 1024 * 1024 }
+      {
+        encoding: 'utf-8',
+        timeout: 15000,
+        maxBuffer: 10 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
     );
   } catch (err) {
     return {
@@ -35,7 +53,12 @@ function readCIMProcesses(runtime) {
   try {
     output = runtime.execSync(
       'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,WorkingSetSize,CreationDate | ConvertTo-Json -Compress"',
-      { encoding: 'utf-8', timeout: 15000, maxBuffer: 10 * 1024 * 1024 }
+      {
+        encoding: 'utf-8',
+        timeout: 15000,
+        maxBuffer: 10 * 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
     );
   } catch (err) {
     return {
@@ -63,7 +86,12 @@ function readWindowsProcess(pid, runtime) {
   try {
     output = runtime.execSync(
       `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress"`,
-      { encoding: 'utf-8', timeout: 5000, maxBuffer: 1024 * 1024 }
+      {
+        encoding: 'utf-8',
+        timeout: 5000,
+        maxBuffer: 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
     );
   } catch {
     return null;
@@ -87,7 +115,12 @@ function windowsProcessExists(pid, runtime) {
   try {
     const output = runtime.execSync(
       `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId | ConvertTo-Json -Compress"`,
-      { encoding: 'utf-8', timeout: 3000, maxBuffer: 1024 * 1024 }
+      {
+        encoding: 'utf-8',
+        timeout: 3000,
+        maxBuffer: 1024 * 1024,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      }
     );
     return parseJsonRows(String(output || '')).some((row) => Number(readField(row, 'ProcessId')) === safePid);
   } catch {
@@ -236,14 +269,6 @@ function parseCsvLine(line) {
 
   parts.push(current);
   return parts;
-}
-
-function providerDiagnostic(provider, code, err) {
-  return {
-    code,
-    provider,
-    message: err instanceof Error ? err.message : String(err || ''),
-  };
 }
 
 module.exports = {

@@ -55,6 +55,66 @@ describe('config storage', () => {
     assert.equal(fs.existsSync(path.join(root, 'history.jsonl')), true);
   });
 
+  it('never persists command lines or arguments in history', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-history-test-'));
+    process.env.ZCLEAN_CONFIG_DIR = root;
+
+    appendLog({
+      action: 'kill',
+      pid: 1234,
+      cmd: 'node agent.js --token=secret-value',
+      command: 'node agent.js --api-key secret-value',
+      args: ['--token', 'secret-value'],
+    });
+
+    const raw = fs.readFileSync(getLogFile(), 'utf-8');
+    const [entry] = readLogs(1);
+    assert.equal(raw.includes('secret-value'), false);
+    assert.equal(Object.hasOwn(entry, 'cmd'), false);
+    assert.equal(Object.hasOwn(entry, 'command'), false);
+    assert.equal(Object.hasOwn(entry, 'args'), false);
+  });
+
+  it('migrates sensitive fields out of existing history', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-history-migration-'));
+    process.env.ZCLEAN_CONFIG_DIR = root;
+    fs.writeFileSync(
+      getLogFile(),
+      `${JSON.stringify({ action: 'kill', pid: 1234, cmd: 'node --token=old-secret' })}\n`,
+      'utf-8'
+    );
+
+    loadConfig();
+
+    const raw = fs.readFileSync(getLogFile(), 'utf-8');
+    assert.equal(raw.includes('old-secret'), false);
+    assert.equal(Object.hasOwn(JSON.parse(raw), 'cmd'), false);
+  });
+
+  it('hardens an existing config file to private permissions on Unix', { skip: process.platform === 'win32' }, () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-existing-mode-test-'));
+    process.env.ZCLEAN_CONFIG_DIR = root;
+    fs.writeFileSync(getConfigFile(), JSON.stringify(DEFAULT_CONFIG), { mode: 0o644 });
+    fs.chmodSync(getConfigFile(), 0o644);
+
+    loadConfig();
+
+    assert.equal(fs.statSync(getConfigFile()).mode & 0o777, 0o600);
+  });
+
+  it('uses private config and history permissions on Unix', { skip: process.platform === 'win32' }, () => {
+    const root = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-mode-test-')), 'private');
+    process.env.ZCLEAN_CONFIG_DIR = root;
+
+    saveConfig(DEFAULT_CONFIG);
+    appendLog({ action: 'test-log' });
+
+    const mode = (file) => fs.statSync(file).mode & 0o777;
+    assert.equal(mode(root), 0o700);
+    assert.equal(mode(getConfigFile()), 0o600);
+    assert.equal(mode(getLogFile()), 0o600);
+  });
+
   it('summarizes history actions for JSON command surfaces', () => {
     const summary = summarizeHistory(
       [

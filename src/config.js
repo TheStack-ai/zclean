@@ -3,6 +3,14 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const {
+  appendPrivateFile,
+  sanitizeHistoryEntry,
+  sanitizeHistoryFile,
+  secureDirectory,
+  secureFile,
+  writePrivateFile,
+} = require('./storage-security');
 
 const CONFIG_DIR_ENV = 'ZCLEAN_CONFIG_DIR';
 
@@ -68,10 +76,7 @@ function parseMemory(str) {
  * Ensure the config directory exists.
  */
 function ensureConfigDir() {
-  const configDir = getConfigDir();
-  if (!fs.existsSync(configDir)) {
-    fs.mkdirSync(configDir, { recursive: true });
-  }
+  secureDirectory(getConfigDir());
 }
 
 /**
@@ -79,8 +84,10 @@ function ensureConfigDir() {
  */
 function loadConfig() {
   ensureConfigDir();
+  sanitizeHistoryFile(getLogFile());
   const configFile = getConfigFile();
   if (fs.existsSync(configFile)) {
+    secureFile(configFile);
     try {
       const raw = fs.readFileSync(configFile, 'utf-8');
       const userConfig = JSON.parse(raw);
@@ -98,7 +105,7 @@ function loadConfig() {
  */
 function saveConfig(config) {
   ensureConfigDir();
-  fs.writeFileSync(getConfigFile(), JSON.stringify(config, null, 2) + '\n', 'utf-8');
+  writePrivateFile(getConfigFile(), JSON.stringify(config, null, 2) + '\n');
 }
 
 /**
@@ -107,8 +114,8 @@ function saveConfig(config) {
  */
 function appendLog(entry) {
   ensureConfigDir();
-  const line = JSON.stringify({ timestamp: new Date().toISOString(), ...entry }) + '\n';
-  fs.appendFileSync(getLogFile(), line, 'utf-8');
+  const sanitized = sanitizeHistoryEntry({ timestamp: new Date().toISOString(), ...entry });
+  appendPrivateFile(getLogFile(), JSON.stringify(sanitized) + '\n');
 }
 
 /**
@@ -122,7 +129,7 @@ function readLogs(limit = 50) {
     return lines
       .slice(-limit)
       .map((line) => {
-        try { return JSON.parse(line); } catch { return null; }
+        try { return sanitizeHistoryEntry(JSON.parse(line)); } catch { return null; }
       })
       .filter(Boolean);
   } catch {
@@ -140,15 +147,15 @@ function pruneLogs(config) {
 
   const cutoff = Date.now() - retentionMs;
   const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
-  const kept = lines.filter((line) => {
+  const kept = lines.flatMap((line) => {
     try {
-      const entry = JSON.parse(line);
-      return new Date(entry.timestamp).getTime() >= cutoff;
+      const entry = sanitizeHistoryEntry(JSON.parse(line));
+      return new Date(entry.timestamp).getTime() >= cutoff ? [JSON.stringify(entry)] : [];
     } catch {
-      return false;
+      return [];
     }
   });
-  fs.writeFileSync(logFile, kept.join('\n') + (kept.length ? '\n' : ''), 'utf-8');
+  writePrivateFile(logFile, kept.join('\n') + (kept.length ? '\n' : ''));
 }
 
 /**

@@ -56,7 +56,6 @@ function killZombies(zombies, config) {
         action: 'kill',
         pid: proc.pid,
         name: proc.name,
-        cmd: proc.cmd,
         reason: proc.reason,
         memFreed: proc.mem,
       });
@@ -69,7 +68,6 @@ function killZombies(zombies, config) {
         action: 'kill-failed',
         pid: proc.pid,
         name: proc.name,
-        cmd: proc.cmd,
         error: killResult.error,
       });
     }

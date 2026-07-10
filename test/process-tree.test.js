@@ -46,15 +46,15 @@ describe('ProcessTree', () => {
       },
     ]);
 
-    it('falls back to CIM when WMIC is missing', () => {
+    it('uses CIM quietly when WMIC is not installed', () => {
       const calls = [];
       const tree = ProcessTree.build({
         platform: 'win32',
         currentPid: 9999,
         now: new Date('2024-01-01T01:00:00.000Z').getTime(),
-        execSync(command) {
-          calls.push(command);
-          if (command.includes('wmic process get')) throw new Error('wmic not found');
+        execSync(command, options) {
+          calls.push({ command, options });
+          if (command === 'where wmic') throw new Error('wmic not found');
           if (command.includes('Get-CimInstance')) return sampleCimOutput;
           throw new Error(`unexpected command: ${command}`);
         },
@@ -62,9 +62,11 @@ describe('ProcessTree', () => {
 
       assert.equal(tree.get(1234).cmd, 'node C:\\agent\\server.js');
       assert.equal(tree.errors.length, 0);
-      assert.equal(tree.warnings.length, 1);
-      assert.equal(tree.warnings[0].provider, 'wmic');
-      assert.ok(calls.some((command) => command.includes('Get-CimInstance')));
+      assert.equal(tree.warnings.length, 0);
+      assert.equal(calls[0].command, 'where wmic');
+      assert.deepEqual(calls[0].options.stdio, ['ignore', 'pipe', 'pipe']);
+      assert.ok(calls.some(({ command }) => command.includes('Get-CimInstance')));
+      assert.ok(!calls.some(({ command }) => command.includes('wmic process get')));
     });
 
     it('falls back to CIM when WMIC returns no process rows', () => {
@@ -72,6 +74,7 @@ describe('ProcessTree', () => {
         platform: 'win32',
         currentPid: 9999,
         execSync(command) {
+          if (command === 'where wmic') return 'C:\\Windows\\System32\\wbem\\WMIC.exe';
           if (command.includes('wmic process get')) {
             return 'Node,CommandLine,CreationDate,ParentProcessId,ProcessId,WorkingSetSize\r\r\n';
           }
@@ -91,8 +94,17 @@ describe('ProcessTree', () => {
         platform: 'win32',
         currentPid: 9999,
         execSync(command) {
-          if (command.includes('wmic process get')) throw new Error('wmic missing');
-          if (command.includes('Get-CimInstance')) throw new Error('cim unavailable');
+          if (command === 'where wmic') return 'C:\\Windows\\System32\\wbem\\WMIC.exe';
+          if (command.includes('wmic process get')) {
+            const error = new Error('wmic failed');
+            error.stderr = Buffer.from('WMIC provider stderr: invalid alias\r\n');
+            throw error;
+          }
+          if (command.includes('Get-CimInstance')) {
+            const error = new Error('cim failed');
+            error.stderr = Buffer.from('CIM provider stderr: access denied\r\n');
+            throw error;
+          }
           throw new Error(`unexpected command: ${command}`);
         },
       });
@@ -103,6 +115,8 @@ describe('ProcessTree', () => {
       assert.equal(tree.errors[0].code, 'process-enumeration-failed');
       assert.equal(tree.errors[0].platform, 'win32');
       assert.deepEqual(tree.errors[0].providers, ['cim', 'wmic']);
+      assert.ok(tree.warnings.some((warning) => warning.message.includes('WMIC provider stderr')));
+      assert.ok(tree.warnings.some((warning) => warning.message.includes('CIM provider stderr')));
     });
   });
 
