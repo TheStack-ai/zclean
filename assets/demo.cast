@@ -25,7 +25,7 @@
 [0.208, "o", "  \u001b[32m✓\u001b[0m Terminated PID 26498  node         148 MB\r\n\r\n"]
 [1.008, "o", "  \u001b[1;32mCleaned 8 zombie processes. Reclaimed ~2.0 GB.\u001b[0m\r\n\r\n"]
 [3.010, "o", "\u001b[1;36m# Set up automatic protection\u001b[0m\r\n"]
-[2.005, "o", "\r\n\u001b[1m$ npx @thestackai/zclean init\u001b[0m\r\n"]
+[2.005, "o", "\r\n\u001b[1m$ npm install -g z-clean\r\n$ zclean init\u001b[0m\r\n"]
 [1.010, "o", "\r\n  zclean init — installing hooks and scheduler...\r\n\r\n"]
 [0.508, "o", "  \u001b[32m✓\u001b[0m Config created: ~/.zclean/config.json\r\n"]
 [0.307, "o", "  \u001b[32m✓\u001b[0m Hook registered: SessionEnd → auto cleanup\r\n"]

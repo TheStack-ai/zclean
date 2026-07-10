@@ -1,5 +1,7 @@
 'use strict';
 
+const fs = require('node:fs');
+const path = require('node:path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
@@ -7,8 +9,23 @@ const hook = require('../src/installer/hook');
 const launchd = require('../src/installer/launchd');
 const systemd = require('../src/installer/systemd');
 const taskScheduler = require('../src/installer/taskscheduler');
+const packageJson = require('../package.json');
+const { LOCAL_BIN_HINT } = require('../src/installer/bin-path');
 
 describe('installer persistent commands', () => {
+  it('uses the unscoped package identity in public install guidance', () => {
+    assert.equal(packageJson.name, 'z-clean');
+    assert.match(LOCAL_BIN_HINT, /npm install -g z-clean/);
+    assert.doesNotMatch(LOCAL_BIN_HINT, /@thestackai\/zclean/);
+  });
+
+  it('shows a persistent install before init in the terminal demo', () => {
+    const demo = fs.readFileSync(path.join(__dirname, '..', 'assets', 'demo.cast'), 'utf8');
+    assert.match(demo, /npm install -g z-clean/);
+    assert.match(demo, /zclean init/);
+    assert.doesNotMatch(demo, /npx(?: --yes)? z-clean init/);
+  });
+
   it('launchd uses a local executable as one ProgramArgument', () => {
     const plist = launchd.generatePlist('/usr/local/bin/zclean');
     assert.match(plist, /<string>\/usr\/local\/bin\/zclean<\/string>/);

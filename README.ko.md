@@ -56,14 +56,14 @@ AI 코딩 도구는 작업 중 많은 임시 런타임을 만듭니다.
 ## 설치
 
 ```bash
-npm install -g @thestackai/zclean
+npm install -g z-clean
 zclean init
 ```
 
 설치 없이 1회 실행:
 
 ```bash
-npx --yes @thestackai/zclean
+npx --yes z-clean
 ```
 
 ## 자주 쓰는 명령
@@ -110,7 +110,7 @@ zclean cache --path=/path/to/project
 
 ```bash
 zclean uninstall
-npm uninstall -g @thestackai/zclean
+npm uninstall -g z-clean
 ```
 
 ## 라이선스

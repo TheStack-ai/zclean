@@ -9,13 +9,13 @@ AI coding runtime hygiene
 
 **AI coding runtime hygiene for Claude Code, Codex, Cursor, Windsurf, MCP servers, agent browsers, and local dev caches.**
 
-[![npm version](https://img.shields.io/npm/v/@thestackai/zclean?style=flat-square&color=blue)](https://www.npmjs.com/package/@thestackai/zclean)
-[![npm downloads](https://img.shields.io/npm/dm/@thestackai/zclean?style=flat-square&color=brightgreen)](https://www.npmjs.com/package/@thestackai/zclean)
+[![npm version](https://img.shields.io/npm/v/z-clean?style=flat-square&color=blue)](https://www.npmjs.com/package/z-clean)
+[![npm downloads](https://img.shields.io/npm/dm/z-clean?style=flat-square&color=brightgreen)](https://www.npmjs.com/package/z-clean)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green?style=flat-square)](https://opensource.org/licenses/MIT)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#platform-status)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/tests-99%20passing-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
@@ -52,14 +52,14 @@ The goal is narrower: **AI coding cleanup and developer workspace hygiene**.
 ## Quick Start
 
 ```bash
-npm install -g @thestackai/zclean
+npm install -g z-clean
 zclean init
 ```
 
 One-off dry run without installation:
 
 ```bash
-npx --yes @thestackai/zclean
+npx --yes z-clean
 ```
 
 Review before cleaning:
@@ -308,10 +308,10 @@ No. The scheduler runs a single scan and exits. There is no persistent backgroun
 
 ```bash
 zclean uninstall
-npm uninstall -g @thestackai/zclean
+npm uninstall -g z-clean
 ```
 
-If you only used `npx --yes @thestackai/zclean`, there is no global package to uninstall.
+If you only used `npx --yes z-clean`, there is no global package to uninstall.
 
 ## Contributing
 

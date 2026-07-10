@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
 
-const LOCAL_BIN_HINT = 'Install zclean first with `npm install -g @thestackai/zclean`, then run `zclean init` again.';
+const LOCAL_BIN_HINT = 'Install zclean first with `npm install -g z-clean`, then run `zclean init` again.';
 
 function resolveZcleanBin(options = {}) {
   const runtime = {

@@ -56,14 +56,14 @@ AI 编程工具在工作时会启动很多临时运行时：
 ## 安装
 
 ```bash
-npm install -g @thestackai/zclean
+npm install -g z-clean
 zclean init
 ```
 
 无需安装的一次性运行：
 
 ```bash
-npx --yes @thestackai/zclean
+npx --yes z-clean
 ```
 
 ## 常用命令
@@ -110,7 +110,7 @@ zclean cache --path=/path/to/project
 
 ```bash
 zclean uninstall
-npm uninstall -g @thestackai/zclean
+npm uninstall -g z-clean
 ```
 
 ## 许可证
