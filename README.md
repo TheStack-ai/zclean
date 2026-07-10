@@ -15,7 +15,7 @@ AI coding runtime hygiene
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#platform-status)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/tests-101%20passing-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
@@ -51,22 +51,24 @@ The goal is narrower: **AI coding cleanup and developer workspace hygiene**.
 
 ## Quick Start
 
+Start with a read-only audit. This does not install hooks, schedule jobs, or clean anything:
+
 ```bash
-npm install -g z-clean
-zclean init
+npx --yes z-clean audit
 ```
 
-One-off dry run without installation:
+Review the candidates before cleaning:
 
 ```bash
 npx --yes z-clean
+npx --yes z-clean report
 ```
 
-Review before cleaning:
+Install the CLI when you are ready to keep using it:
 
 ```bash
+npm install -g z-clean
 zclean report
-zclean report --json
 ```
 
 Clean only when you decide:
@@ -75,6 +77,14 @@ Clean only when you decide:
 zclean --yes
 zclean cache --yes
 ```
+
+Optional automation:
+
+```bash
+zclean init
+```
+
+`zclean init` installs the Claude Code session hook and the native OS scheduler. Run it only after reviewing the dry-run output. It does not install a persistent daemon.
 
 ## Why developers use it
 

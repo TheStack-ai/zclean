@@ -55,16 +55,33 @@ AI 코딩 도구는 작업 중 많은 임시 런타임을 만듭니다.
 
 ## 설치
 
+먼저 설치나 정리 없이 읽기 전용 audit을 실행하세요:
+
 ```bash
-npm install -g z-clean
-zclean init
+npx --yes z-clean audit
 ```
 
-설치 없이 1회 실행:
+정리 전에 후보를 검토하세요:
 
 ```bash
 npx --yes z-clean
+npx --yes z-clean report
 ```
+
+계속 사용하려면 전역 설치하세요:
+
+```bash
+npm install -g z-clean
+zclean report
+```
+
+자동 실행은 선택 사항입니다:
+
+```bash
+zclean init
+```
+
+`zclean init`은 Claude Code session hook과 OS scheduler를 설치합니다. dry-run 결과를 확인한 후에만 실행하세요. 상주 daemon을 설치하지는 않습니다.
 
 ## 자주 쓰는 명령
 

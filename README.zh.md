@@ -55,16 +55,33 @@ AI 编程工具在工作时会启动很多临时运行时：
 
 ## 安装
 
+先运行只读 audit；它不会安装 hook、创建定时任务或执行清理：
+
 ```bash
-npm install -g z-clean
-zclean init
+npx --yes z-clean audit
 ```
 
-无需安装的一次性运行：
+清理前先查看候选项：
 
 ```bash
 npx --yes z-clean
+npx --yes z-clean report
 ```
+
+准备长期使用时再全局安装：
+
+```bash
+npm install -g z-clean
+zclean report
+```
+
+自动运行是可选项：
+
+```bash
+zclean init
+```
+
+`zclean init` 会安装 Claude Code session hook 和原生 OS scheduler。请先检查 dry-run 结果；它不会安装常驻 daemon。
 
 ## 常用命令
 

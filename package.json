@@ -1,6 +1,6 @@
 {
   "name": "z-clean",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "AI coding runtime hygiene reports, zombie cleanup, and safe workspace cache cleanup",
   "bin": {
     "zclean": "bin/zclean.js"
