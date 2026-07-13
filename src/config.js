@@ -40,6 +40,7 @@ const DEFAULT_CONFIG = {
   logRetention: '30d',
   maxKillBatch: 20,
   customAiDirs: [],
+  customPatterns: [],
 };
 
 /**
@@ -91,7 +92,9 @@ function loadConfig() {
     try {
       const raw = fs.readFileSync(configFile, 'utf-8');
       const userConfig = JSON.parse(raw);
-      return { ...DEFAULT_CONFIG, ...userConfig };
+      const config = { ...DEFAULT_CONFIG, ...userConfig };
+      if (!(parseDuration(config.maxAge) > 0)) config.maxAge = DEFAULT_CONFIG.maxAge;
+      return config;
     } catch {
       // Corrupted config — use defaults
       return { ...DEFAULT_CONFIG };

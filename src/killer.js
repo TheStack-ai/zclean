@@ -118,6 +118,9 @@ function verifyProcessUnix(proc, runtime = runtimeOptions()) {
     if (scanPrefix !== currentPrefix) {
       return { valid: false, reason: 'cmd-mismatch' };
     }
+    if (!matchesCustomLiteral(proc, cmd)) {
+      return { valid: false, reason: 'pattern-mismatch' };
+    }
 
     // Verify start time if available
     if (proc.startTime) {
@@ -154,6 +157,9 @@ function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32'
   if (scanPrefix !== currentPrefix) {
     return { valid: false, reason: 'cmd-mismatch' };
   }
+  if (!matchesCustomLiteral(proc, currentCmd)) {
+    return { valid: false, reason: 'pattern-mismatch' };
+  }
 
   if (proc.startTime && current.startTime && current.startTime !== proc.startTime) {
     return { valid: false, reason: 'start-time-mismatch' };
@@ -164,6 +170,11 @@ function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32'
   }
 
   return { valid: true, reason: 'verified' };
+}
+
+function matchesCustomLiteral(proc, currentCmd) {
+  if (!proc.matchLiteral) return true;
+  return String(currentCmd).toLowerCase().includes(String(proc.matchLiteral).toLowerCase());
 }
 
 /**

@@ -71,9 +71,11 @@ npx --yes z-clean report
 准备长期使用时再全局安装：
 
 ```bash
-npm install -g z-clean
+npm install --global z-clean --foreground-scripts
 zclean report
 ```
+
+`--foreground-scripts` 会显示 zclean 安装字标。npm 7 及以上默认隐藏 lifecycle 输出，因此普通的 `npm install -g z-clean` 仍会正常安装，但可能不显示品牌完成画面。
 
 自动运行是可选项：
 
@@ -93,11 +95,14 @@ zclean report --json    # 自动化 JSON report
 zclean cache            # workspace cache dry-run scan
 zclean cache --yes      # 删除支持的 cache directory
 zclean cache --json     # 输出 cache 候选 JSON
+zclean --pattern=my-agent-worker  # 为本次扫描添加 literal orphan pattern
 zclean history --json   # 清理历史 JSON
 zclean protect list     # 查看保护列表
 zclean protect add mcp-server-keep
 zclean doctor --json    # 检查安装、调度器和进程枚举状态
 ```
+
+如需长期使用，请把字符串加入 `~/.zclean/config.json` 的 `customPatterns` 数组。pattern 是忽略大小写的 literal 文本，不是正则表达式；只允许 3–80 个可打印字符，并拒绝 `node`、`node /`、`ode` 等通用 runtime 名称或片段。只有 orphan 且超过 `maxAge`（默认 24 小时）的 process 才会成为候选项；无效或为零的时长会回退到安全的 24 小时默认值。whitelist、PID 再验证、dry-run 和显式 `--yes` 安全限制仍然有效。
 
 扫描另一个 workspace：
 

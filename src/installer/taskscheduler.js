@@ -45,11 +45,13 @@ function installTaskScheduler() {
     execFileSync('schtasks', args, { encoding: 'utf-8', timeout: 10000 });
     return {
       installed: true,
+      active: true,
       message: `Task Scheduler task created: ${TASK_NAME} (hourly)`,
     };
   } catch (err) {
     return {
       installed: false,
+      active: false,
       message: `Failed to create scheduled task: ${err.message}\nTry running as administrator.`,
     };
   }
@@ -60,29 +62,38 @@ function installTaskScheduler() {
  *
  * @returns {{ removed: boolean, message: string }}
  */
-function removeTaskScheduler() {
-  if (os.platform() !== 'win32') {
-    return { removed: false, message: 'Task Scheduler is Windows only.' };
+function removeTaskScheduler(options = {}) {
+  const platform = options.platform || os.platform();
+  const run = options.execFileSync || execFileSync;
+  if (platform !== 'win32') {
+    return { removed: false, failed: false, message: 'Task Scheduler is Windows only.' };
   }
 
   try {
-    execFileSync('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], {
+    run('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], {
       encoding: 'utf-8',
       timeout: 10000,
     });
     return {
       removed: true,
+      failed: false,
       message: `Task Scheduler task removed: ${TASK_NAME}`,
     };
   } catch (err) {
-    if (err.message.includes('does not exist') || err.message.includes('ERROR')) {
-      return { removed: false, message: 'Task not found. Already uninstalled.' };
+    if (isTaskMissing(err)) {
+      return { removed: false, failed: false, message: 'Task not found. Already uninstalled.' };
     }
     return {
       removed: false,
+      failed: true,
       message: `Failed to remove task: ${err.message}`,
     };
   }
+}
+
+function isTaskMissing(err) {
+  const output = `${err?.message || ''}\n${String(err?.stdout || '')}\n${String(err?.stderr || '')}`;
+  return /task name(?: .*?)? does not exist|cannot find the (?:file|task)|task .* not found/i.test(output);
 }
 
 module.exports = {

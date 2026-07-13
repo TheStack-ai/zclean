@@ -38,6 +38,40 @@ describe('CLI argument contract', () => {
     assert.match(result.stdout, /zclean report \[--json\] Show AI runtime hygiene report/);
     assert.match(result.stdout, /zclean audit \[--json\]\s+Alias for report/);
     assert.match(result.stdout, /zclean cache \[--json\]\s+Show safe workspace cache candidates/);
+    assert.match(result.stdout, /--pattern=TEXT\s+Add a literal orphan-process pattern/);
+  });
+
+  it('rejects unsafe custom pattern flags before scanning', () => {
+    const result = runCli(['--pattern=ab']);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 1);
+    assert.match(output, /--pattern must be a literal between 3 and 80 characters/);
+    assert.doesNotMatch(output, /scanning for zombie processes/);
+  });
+
+  it('rejects generic runtime names as custom pattern flags', () => {
+    const result = runCli(['--pattern=node']);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 1);
+    assert.match(output, /generic runtime names are not allowed/);
+    assert.doesNotMatch(output, /scanning for zombie processes/);
+  });
+
+  it('validates custom pattern flags for status scans', () => {
+    const result = runCli(['status', '--pattern=node']);
+    const output = `${result.stdout}\n${result.stderr}`;
+
+    assert.equal(result.status, 1);
+    assert.match(output, /generic runtime names are not allowed/);
+  });
+
+  it('preserves equals signs inside custom pattern values', () => {
+    const result = runCli(['--pattern=ab=cd']);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /scanning for zombie processes/);
   });
 
   it('prints report JSON as a read-only runtime hygiene report', () => {

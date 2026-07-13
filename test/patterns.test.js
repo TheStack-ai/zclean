@@ -2,7 +2,14 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { PATTERNS, AI_TOOL_DIRS, AI_DIR_REGEX, buildAiDirRegex, matchPattern } = require('../src/detector/patterns');
+const {
+  PATTERNS,
+  AI_TOOL_DIRS,
+  AI_DIR_REGEX,
+  buildAiDirRegex,
+  getCustomPatternError,
+  matchPattern,
+} = require('../src/detector/patterns');
 
 describe('AI_TOOL_DIRS', () => {
   it('contains exactly 14 directories', () => {
@@ -79,6 +86,86 @@ describe('matchPattern', () => {
 
   it('unrelated command → null', () => {
     assert.equal(matchPattern('vim /etc/hosts'), null);
+  });
+
+  it('matches configured custom patterns as case-insensitive literals', () => {
+    const result = matchPattern('node My-Agent-Worker.js', {
+      customPatterns: ['my-agent-worker'],
+    });
+
+    assert.ok(result);
+    assert.equal(result.name, 'custom:my-agent-worker');
+    assert.equal(result.orphanOnly, true);
+  });
+
+  it('does not interpret custom patterns as regular expressions', () => {
+    assert.equal(matchPattern('node worker.js', { customPatterns: ['worker.*'] }), null);
+  });
+
+  it('ignores unsafe custom pattern values from config', () => {
+    assert.equal(matchPattern('node a.js', { customPatterns: ['a', '', 42] }), null);
+  });
+
+  it('rejects generic runtime names as custom patterns', () => {
+    assert.equal(matchPattern('node service.js', { customPatterns: ['node'] }), null);
+    assert.equal(matchPattern('python worker.py', { customPatterns: ['python'] }), null);
+  });
+
+  it('rejects custom patterns that begin with a generic runtime', () => {
+    assert.equal(matchPattern('node /srv/service.js', { customPatterns: ['node /'] }), null);
+    assert.equal(matchPattern('python -m worker', { customPatterns: ['python -m'] }), null);
+  });
+
+  it('rejects fragments that are contained inside generic runtime names', () => {
+    assert.match(getCustomPatternError('ode'), /specific/i);
+    assert.match(getCustomPatternError('ython'), /specific/i);
+  });
+
+  it('rejects generic runtime executable and path forms', () => {
+    for (const pattern of [
+      'node.exe',
+      'python.exe',
+      'python3.12',
+      'pythonw.exe',
+      'pythonw3.12.exe',
+      'python3.13t',
+      'pythonw3.13t.exe',
+      'ruby3.2',
+      'php8.3',
+      'java17',
+      'node20',
+      'go1.22',
+      'py.exe',
+      'pipx',
+      'cmd.exe',
+      'wscript.exe',
+      'cscript.exe',
+      'powershell_ise.exe',
+      'javaw.exe',
+      'npm',
+      'npx',
+      'npm-cli.js',
+      'npx-cli.js',
+      'npm-cli',
+      'npm-cli.exe',
+      'npx-cli.cmd',
+      'pnpm-cli.exe',
+      'C:\\tools\\pnpm-cli.exe',
+      'pnpm.cjs',
+      'yarn.js',
+      'corepack.cjs',
+      'tsx',
+      '/usr/bin/node',
+      'C:\\tools\\python3.exe',
+      '"C:\\Program Files\\nodejs\\node.exe"',
+    ]) {
+      assert.match(getCustomPatternError(pattern), /specific/i, pattern);
+    }
+  });
+
+  it('rejects Unicode control and format characters', () => {
+    assert.match(getCustomPatternError('safe\u202eworker'), /printable/i);
+    assert.match(getCustomPatternError('safe\u0085worker'), /printable/i);
   });
 });
 

@@ -1,7 +1,7 @@
 'use strict';
 
 const { ProcessTree } = require('./process-tree');
-const { matchPattern, AI_DIR_REGEX, buildAiDirRegex } = require('./detector/patterns');
+const { createPatternMatcher, AI_DIR_REGEX, buildAiDirRegex } = require('./detector/patterns');
 const { isWhitelisted } = require('./detector/whitelist');
 const { parseDuration, parseMemory } = require('./config');
 
@@ -18,6 +18,7 @@ const { parseDuration, parseMemory } = require('./config');
 function scan(config, opts = {}) {
   const tree = ProcessTree.build();
   const aiDirRegex = buildAiDirRegex(config.customAiDirs);
+  const matchConfiguredPattern = createPatternMatcher(config);
   const zombies = [];
   const warnings = Array.isArray(tree.warnings) ? [...tree.warnings] : [];
   const errors = Array.isArray(tree.errors) ? [...tree.errors] : [];
@@ -35,7 +36,7 @@ function scan(config, opts = {}) {
   // Iterate all processes in the tree
   for (const [, proc] of tree.byPid) {
     // Match against known AI tool patterns
-    const pattern = matchPattern(proc.cmd, config);
+    const pattern = matchConfiguredPattern(proc.cmd);
     if (!pattern) continue;
 
     // AI path filter: skip generic patterns if command isn't in an AI tool directory
@@ -46,6 +47,8 @@ function scan(config, opts = {}) {
     const sessionRelated = sessionPid
       ? tree.hasAncestorMatching(proc.pid, (p) => p.pid === sessionPid)
       : false;
+
+    if (pattern.strictOrphan && !orphanResult.isOrphan) continue;
 
     // If pattern requires orphan status and process isn't orphaned, skip
     if (pattern.orphanOnly && !orphanResult.isOrphan && !sessionRelated) continue;
@@ -90,6 +93,7 @@ function scan(config, opts = {}) {
       startTime: proc.startTime,
       reason: reasons.join(', '),
       pattern: pattern.name,
+      matchLiteral: pattern.literal || null,
     });
   }
 

@@ -30,6 +30,7 @@ afterEach(() => {
 describe('config storage', () => {
   it('includes documented customAiDirs in default config', () => {
     assert.deepEqual(DEFAULT_CONFIG.customAiDirs, []);
+    assert.deepEqual(DEFAULT_CONFIG.customPatterns, []);
   });
 
   it('uses a temp config root under node --test when no explicit root is set', () => {
@@ -53,6 +54,16 @@ describe('config storage', () => {
     assert.deepEqual(readLogs(1).map((entry) => entry.action), ['test-log']);
     assert.equal(fs.existsSync(path.join(root, 'config.json')), true);
     assert.equal(fs.existsSync(path.join(root, 'history.jsonl')), true);
+  });
+
+  it('falls back to the safe default when maxAge is invalid or zero', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-invalid-age-test-'));
+    process.env.ZCLEAN_CONFIG_DIR = root;
+
+    for (const maxAge of ['invalid', '0h']) {
+      saveConfig({ ...DEFAULT_CONFIG, maxAge });
+      assert.equal(loadConfig().maxAge, DEFAULT_CONFIG.maxAge);
+    }
   });
 
   it('never persists command lines or arguments in history', () => {

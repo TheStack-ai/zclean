@@ -1,15 +1,16 @@
 {
   "name": "z-clean",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "AI coding runtime hygiene reports, zombie cleanup, and safe workspace cache cleanup",
   "bin": {
     "zclean": "bin/zclean.js"
   },
   "scripts": {
-    "test": "node --test test/patterns.test.js test/scanner.test.js test/process-tree.test.js test/killer.test.js test/config.test.js test/installer-fallback.test.js test/cli.test.js test/cli-history-protect.test.js test/cli-doctor.test.js test/audit.test.js test/cache.test.js",
+    "test": "node --test test/patterns.test.js test/scanner.test.js test/process-tree.test.js test/killer.test.js test/config.test.js test/installer-fallback.test.js test/install-experience.test.js test/reporter.test.js test/cli.test.js test/cli-history-protect.test.js test/cli-doctor.test.js test/audit.test.js test/cache.test.js",
     "syntax": "node -e \"const fs=require('node:fs');const path=require('node:path');const {execFileSync}=require('node:child_process');const files=['bin/zclean.js'];function walk(dir){if(!fs.existsSync(dir))return;for(const entry of fs.readdirSync(dir,{withFileTypes:true})){const file=path.join(dir,entry.name);if(entry.isDirectory())walk(file);else if(entry.name.endsWith('.js'))files.push(file);}}for(const dir of ['src','test','scripts'])walk(dir);for(const file of files)execFileSync(process.execPath,['-c',file],{stdio:'inherit'});\"",
     "smoke": "node scripts/smoke.js",
-    "pack:check": "npm pack --dry-run --json"
+    "pack:check": "npm pack --dry-run --json",
+    "postinstall": "node scripts/postinstall.js"
   },
   "keywords": [
     "claude-code",
@@ -40,6 +41,7 @@
   "files": [
     "bin/",
     "src/",
+    "scripts/postinstall.js",
     "assets/zclean-hero.png",
     "LICENSE",
     "README.md",

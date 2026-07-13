@@ -71,9 +71,11 @@ npx --yes z-clean report
 계속 사용하려면 전역 설치하세요:
 
 ```bash
-npm install -g z-clean
+npm install --global z-clean --foreground-scripts
 zclean report
 ```
+
+`--foreground-scripts`를 사용하면 zclean 설치 워드마크가 표시됩니다. npm 7 이상은 lifecycle 출력을 기본적으로 숨기므로 `npm install -g z-clean`도 정상 설치되지만 완료 화면은 보이지 않을 수 있습니다.
 
 자동 실행은 선택 사항입니다:
 
@@ -93,11 +95,14 @@ zclean report --json    # 자동화용 JSON report
 zclean cache            # workspace cache dry-run scan
 zclean cache --yes      # 지원되는 cache directory 삭제
 zclean cache --json     # cache 후보 JSON 출력
+zclean --pattern=my-agent-worker  # 이번 scan에 literal orphan pattern 추가
 zclean history --json   # 정리 이력 JSON
 zclean protect list     # 보호 목록 확인
 zclean protect add mcp-server-keep
 zclean doctor --json    # 설치/탐지/스케줄러 상태 점검
 ```
+
+패턴을 계속 사용하려면 `~/.zclean/config.json`의 `customPatterns` 배열에 문자열을 추가하세요. 패턴은 정규식이 아닌 대소문자 무시 literal 문자열이며 3–80자의 출력 가능한 문자만 허용됩니다. `node`, `node /`, `ode` 같은 일반 runtime 이름과 부분 문자열은 거부되고, orphan이면서 `maxAge`(기본 24시간)를 넘은 process만 후보가 됩니다. 잘못되거나 0인 기간은 안전한 기본값 24시간으로 돌아갑니다. whitelist, PID 재검증, dry-run, `--yes` 안전장치는 그대로 유지됩니다.
 
 다른 workspace cache를 확인하려면:
 

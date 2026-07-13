@@ -6,21 +6,21 @@ const { scan, hasScanErrors } = require('../src/scanner');
 const { killZombies } = require('../src/killer');
 const {
   loadConfig,
-  saveConfig,
   readLogs,
   pruneLogs,
-  DEFAULT_CONFIG,
   appendLog,
   getCumulativeStats,
   getConfigFile,
 } = require('../src/config');
 const { reportDryRun, reportKill, reportStatus, reportLogs, reportConfig, c, bold } = require('../src/reporter');
-const { installHook, removeHook } = require('../src/installer/hook');
+const { removeHook } = require('../src/installer/hook');
 const { runHistory, runProtect } = require('../src/commands/trust');
-const { installScheduler, uninstallScheduler } = require('../src/commands/scheduler');
+const { uninstallScheduler } = require('../src/commands/scheduler');
 const { runDoctor } = require('../src/doctor');
 const { runAudit } = require('../src/audit');
 const { runCache } = require('../src/cache');
+const { getCustomPatternError, normalizeCustomPattern } = require('../src/detector/patterns');
+const { runInit } = require('../src/commands/init');
 
 // Platform-specific installers (lazy loaded)
 const platform = os.platform();
@@ -33,8 +33,10 @@ const positional = [];
 
 for (const arg of args) {
   if (arg.startsWith('--')) {
-    const [key, value] = arg.substring(2).split('=');
-    flags[key] = value !== undefined ? value : true;
+    const body = arg.substring(2);
+    const separator = body.indexOf('=');
+    const key = separator === -1 ? body : body.slice(0, separator);
+    flags[key] = separator === -1 ? true : body.slice(separator + 1);
   } else if (arg.startsWith('-') && arg.length === 2) {
     flags[arg.substring(1)] = true;
   } else {
@@ -64,7 +66,7 @@ async function main() {
 
   switch (command) {
     case 'init':
-      return cmdInit(config);
+      return runInit({ config, platform });
 
     case 'status':
       return cmdStatus(config);
@@ -114,17 +116,19 @@ async function main() {
  * Dry-run unless --yes is passed.
  */
 function cmdScan(config) {
+  const scanConfig = withPatternFlag(config);
+  if (!scanConfig) return;
   const sessionPid = parseSessionPidFlag();
   const force = flags.yes || flags.y;
 
   console.log(bold('\n  zclean') + c('gray', ' — scanning for zombie processes...\n'));
 
-  const zombies = scan(config, { sessionPid });
+  const zombies = scan(scanConfig, { sessionPid });
 
   if (hasScanErrors(zombies)) {
     reportDryRun(zombies);
     appendLog({ action: 'scan-failed', errors: zombies.errors.length });
-    pruneLogs(config);
+    pruneLogs(scanConfig);
     process.exitCode = 1;
     return;
   }
@@ -137,12 +141,12 @@ function cmdScan(config) {
       return;
     }
     appendLog({ action: 'scan', found: zombies.length });
-    const results = killZombies(zombies, config);
+    const results = killZombies(zombies, scanConfig);
     results.cumulative = getCumulativeStats();
     reportKill(results);
   } else {
     // Dry-run mode
-    if (config.dryRunDefault === false) {
+    if (scanConfig.dryRunDefault === false) {
       console.log(c('yellow', '  dryRunDefault=false is not an auto-kill switch; pass --yes to clean.\n'));
     }
     reportDryRun(zombies);
@@ -152,40 +156,16 @@ function cmdScan(config) {
   }
 
   // Prune old logs
-  pruneLogs(config);
-}
-
-/**
- * init: Install hooks + scheduler.
- */
-function cmdInit(config) {
-  console.log(bold('\n  zclean init') + c('gray', ' — installing hooks and scheduler...\n'));
-
-  // 1. Save default config if none exists
-  const existingConfig = loadConfig();
-  if (JSON.stringify(existingConfig) === JSON.stringify(DEFAULT_CONFIG)) {
-    saveConfig(DEFAULT_CONFIG);
-    console.log(c('green', '  Config created:') + ` ${getConfigFile()}`);
-  } else {
-    console.log(c('gray', '  Config exists:') + ` ${getConfigFile()}`);
-  }
-
-  // 2. Install Claude Code hook
-  const hookResult = installHook();
-  const hookIcon = hookResult.installed ? c('green', '  Hook:') : c('yellow', '  Hook:');
-  console.log(`${hookIcon} ${hookResult.message}`);
-
-  // 3. Install platform-specific scheduler
-  installScheduler(platform);
-
-  console.log();
+  pruneLogs(scanConfig);
 }
 
 /**
  * status: Show current zombies and last cleanup info.
  */
 function cmdStatus(config) {
-  const zombies = scan(config);
+  const scanConfig = withPatternFlag(config);
+  if (!scanConfig) return;
+  const zombies = scan(scanConfig);
   const logs = readLogs(100);
   reportStatus(zombies, logs);
   if (hasScanErrors(zombies)) process.exitCode = 1;
@@ -232,8 +212,10 @@ function cmdDoctor(config) {
 }
 
 function cmdAudit(config, commandName = 'audit') {
+  const scanConfig = withPatternFlag(config);
+  if (!scanConfig) return;
   const sessionPid = parseSessionPidFlag();
-  const report = runAudit(config, { json: Boolean(flags.json), sessionPid, commandName });
+  const report = runAudit(scanConfig, { json: Boolean(flags.json), sessionPid, commandName });
   if (!report.risk.enumerationComplete) process.exitCode = 1;
 }
 
@@ -255,6 +237,19 @@ function parseSessionPidFlag() {
   if (Number.isInteger(pid) && pid > 0) return pid;
   console.error(c('red', '  --session-pid must be a positive integer'));
   process.exit(1);
+}
+
+function withPatternFlag(config) {
+  if (flags.pattern === undefined) return config;
+  const error = getCustomPatternError(flags.pattern);
+  if (error) {
+    console.error(c('red', `  ${error}`));
+    process.exitCode = 1;
+    return null;
+  }
+  const literal = normalizeCustomPattern(flags.pattern);
+  const configured = Array.isArray(config.customPatterns) ? config.customPatterns : [];
+  return { ...config, customPatterns: [...configured, literal] };
 }
 
 // ─── Help ───────────────────────────────────────────────────────────────────
@@ -285,6 +280,7 @@ function printHelp() {
   ${bold('Options:')}
     --yes, -y             Kill found zombies (default: dry-run)
     --session-pid=PID     Filter by parent session PID
+    --pattern=TEXT        Add a literal orphan-process pattern
     --path=DIR            Workspace path for zclean cache
     --json                Print machine-readable output for supported commands
     --version, -v         Show version

@@ -1,5 +1,7 @@
 'use strict';
 
+const { sanitizeTerminalText } = require('./terminal-text');
+
 /**
  * ANSI color codes — no external dependencies.
  */
@@ -78,7 +80,7 @@ function formatDiagnostic(item) {
   const providers = Array.isArray(item.providers) && item.providers.length > 0
     ? ` (providers: ${item.providers.join(', ')})`
     : '';
-  return `${code}${item.message || 'process scan diagnostic'}${providers}`;
+  return sanitizeTerminalText(`${code}${item.message || 'process scan diagnostic'}${providers}`);
 }
 
 function reportScanDiagnostics(result) {
@@ -123,8 +125,8 @@ function reportDryRun(zombies) {
   const totalMem = zombies.reduce((sum, z) => sum + z.mem, 0);
 
   for (const z of zombies) {
-    console.log(`  ${c('red', 'PID')} ${c('bold', String(z.pid).padStart(6))}  ${c('cyan', z.name.padEnd(16))}  ${c('yellow', formatBytes(z.mem).padStart(8))}  ${c('gray', formatDuration(z.age).padStart(6))}`);
-    console.log(`  ${c('gray', '  cmd:')} ${truncate(z.cmd, 72)}`);
+    console.log(`  ${c('red', 'PID')} ${c('bold', String(z.pid).padStart(6))}  ${c('cyan', truncate(z.name, 16).padEnd(16))}  ${c('yellow', formatBytes(z.mem).padStart(8))}  ${c('gray', formatDuration(z.age).padStart(6))}`);
+    console.log(`  ${c('gray', '  cmd:')} ${truncate(sanitizeTerminalText(z.cmd), 72)}`);
     console.log(`  ${c('gray', '  why:')} ${z.reason}`);
     console.log();
   }
@@ -155,7 +157,7 @@ function reportKill(results) {
     const totalMem = killed.reduce((sum, p) => sum + p.mem, 0);
     console.log(c('green', `  Killed ${killed.length} zombie process${killed.length === 1 ? '' : 'es'}:`));
     for (const p of killed) {
-      console.log(`    ${c('green', 'KILLED')} PID ${String(p.pid).padStart(6)}  ${p.name.padEnd(16)}  ${formatBytes(p.mem).padStart(8)}`);
+      console.log(`    ${c('green', 'KILLED')} PID ${String(p.pid).padStart(6)}  ${truncate(p.name, 16).padEnd(16)}  ${formatBytes(p.mem).padStart(8)}`);
     }
     console.log(c('green', `\n  Memory freed: ${formatBytes(totalMem)}`));
 
@@ -170,14 +172,14 @@ function reportKill(results) {
   if (skipped.length > 0) {
     console.log(c('yellow', `\n  Skipped ${skipped.length} (re-verification failed):`));
     for (const p of skipped) {
-      console.log(`    ${c('yellow', 'SKIP')}   PID ${String(p.pid).padStart(6)}  ${p.name.padEnd(16)}  reason: ${p.skipReason}`);
+      console.log(`    ${c('yellow', 'SKIP')}   PID ${String(p.pid).padStart(6)}  ${truncate(p.name, 16).padEnd(16)}  reason: ${sanitizeTerminalText(p.skipReason)}`);
     }
   }
 
   if (failed.length > 0) {
     console.log(c('red', `\n  Failed to kill ${failed.length}:`));
     for (const p of failed) {
-      console.log(`    ${c('red', 'FAIL')}   PID ${String(p.pid).padStart(6)}  ${p.name.padEnd(16)}  error: ${p.error}`);
+      console.log(`    ${c('red', 'FAIL')}   PID ${String(p.pid).padStart(6)}  ${truncate(p.name, 16).padEnd(16)}  error: ${sanitizeTerminalText(p.error)}`);
     }
   }
 
@@ -233,7 +235,7 @@ function reportLogs(logs) {
         console.log(`  ${time}  ${c('green', 'KILL')}  PID ${String(entry.pid).padStart(6)}  ${(entry.name || '').padEnd(16)}  ${formatBytes(entry.memFreed || 0)}`);
         break;
       case 'kill-failed':
-        console.log(`  ${time}  ${c('red', 'FAIL')}  PID ${String(entry.pid).padStart(6)}  ${(entry.name || '').padEnd(16)}  ${entry.error || ''}`);
+        console.log(`  ${time}  ${c('red', 'FAIL')}  PID ${String(entry.pid).padStart(6)}  ${(entry.name || '').padEnd(16)}  ${sanitizeTerminalText(entry.error || '')}`);
         break;
       case 'cleanup-summary':
         console.log(`  ${time}  ${c('cyan', 'DONE')}  killed:${entry.killed} failed:${entry.failed} skipped:${entry.skipped}  freed:${formatBytes(entry.totalMemFreed || 0)}`);
@@ -258,7 +260,7 @@ function reportConfig(config, configPath) {
     const displayValue = Array.isArray(value)
       ? (value.length === 0 ? '[]' : JSON.stringify(value))
       : String(value);
-    console.log(`  ${c('cyan', key.padEnd(20))} ${displayValue}`);
+    console.log(`  ${c('cyan', key.padEnd(20))} ${sanitizeTerminalText(displayValue)}`);
   }
 
   console.log();

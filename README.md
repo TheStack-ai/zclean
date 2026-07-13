@@ -15,7 +15,7 @@ AI coding runtime hygiene
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#platform-status)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/tests-105%20passing-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
@@ -67,9 +67,11 @@ npx --yes z-clean report
 Install the CLI when you are ready to keep using it:
 
 ```bash
-npm install -g z-clean
+npm install --global z-clean --foreground-scripts
 zclean report
 ```
+
+`--foreground-scripts` displays zclean's install wordmark. npm 7+ hides lifecycle output by default, so plain `npm install -g z-clean` still installs correctly but may not show the branded completion screen.
 
 Clean only when you decide:
 
@@ -111,6 +113,7 @@ When an agent crashes, a terminal closes, or a session ends abruptly, those chil
 | `zclean cache` | Dry-run scan for supported workspace cache directories |
 | `zclean cache --yes` | Remove supported workspace cache directories |
 | `zclean cache --json` | Machine-readable cache hygiene report |
+| `zclean --pattern=my-agent-worker` | Add one literal orphan-process pattern for this scan |
 | `zclean history` | Recent cleanup history |
 | `zclean history --json` | Sanitized cleanup history and cumulative stats |
 | `zclean protect list` | Show protected process patterns |
@@ -259,7 +262,8 @@ zclean doctor --json
   "sigterm_timeout": 10,
   "dryRunDefault": true,
   "logRetention": "30d",
-  "customAiDirs": []
+  "customAiDirs": [],
+  "customPatterns": []
 }
 ```
 
@@ -273,6 +277,9 @@ zclean doctor --json
 | `dryRunDefault` | `true` | Manual scans stay dry-run by default; cleanup still requires `--yes` |
 | `logRetention` | `"30d"` | Cleanup history retention |
 | `customAiDirs` | `[]` | Additional AI tool directories to detect, such as `[".mytool"]` |
+| `customPatterns` | `[]` | Case-insensitive literal command fragments for additional orphan processes |
+
+Custom patterns are deliberately restricted: values must contain 3–80 printable characters, generic runtime names and fragments such as `node`, `node /`, or `ode` are rejected, and values are treated as literal text rather than regular expressions. Candidates must be orphaned and older than `maxAge` (24 hours by default); invalid or zero durations fall back to that safe default. Whitelists, PID identity verification, batch limits, dry-run behavior, and the explicit `--yes` cleanup gate still apply.
 
 ## Supported tools
 

@@ -61,6 +61,26 @@ describe('killZombies — maxKillBatch', () => {
   });
 });
 
+describe('custom pattern kill verification', () => {
+  it('rejects a process whose current command no longer contains the custom literal', () => {
+    const sharedPrefix = `node ${'a'.repeat(50)}`;
+    const result = verifyProcess({
+      pid: 3210,
+      cmd: `${sharedPrefix}my-agent-worker`,
+      matchLiteral: 'my-agent-worker',
+      startTime: null,
+    }, {
+      platform: 'darwin',
+      execSync(command) {
+        if (command.includes('ps -o command=')) return `${sharedPrefix}other-service`;
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { valid: false, reason: 'pattern-mismatch' });
+  });
+});
+
 describe('Windows kill verification', () => {
   it('verifies identity with CIM when WMIC is missing', () => {
     const proc = {

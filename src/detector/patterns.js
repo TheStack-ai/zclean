@@ -1,5 +1,12 @@
 'use strict';
 
+const {
+  createCustomPattern,
+  getCustomPatternError,
+  getCustomPatterns,
+  normalizeCustomPattern,
+} = require('./custom-patterns');
+
 /**
  * Process patterns to detect AI tool zombies.
  *
@@ -211,7 +218,7 @@ const PATTERNS = [
  * @param {object} [config] — optional config with customAiDirs
  * @returns {object|null} matched pattern or null
  */
-function matchPattern(cmdline, config) {
+function matchPattern(cmdline, config, customPatterns = getCustomPatterns(config)) {
   const aiRegex = config && config.customAiDirs && config.customAiDirs.length > 0
     ? buildAiDirRegex(config.customAiDirs)
     : AI_DIR_REGEX;
@@ -225,7 +232,28 @@ function matchPattern(cmdline, config) {
       return pattern;
     }
   }
+
+  const command = String(cmdline).toLowerCase();
+  for (const literal of customPatterns) {
+    if (command.includes(literal.toLowerCase())) {
+      return createCustomPattern(literal, config);
+    }
+  }
   return null;
 }
 
-module.exports = { PATTERNS, AI_TOOL_DIRS, AI_DIR_REGEX, buildAiDirRegex, matchPattern };
+function createPatternMatcher(config) {
+  const customPatterns = getCustomPatterns(config);
+  return (cmdline) => matchPattern(cmdline, config, customPatterns);
+}
+
+module.exports = {
+  PATTERNS,
+  AI_TOOL_DIRS,
+  AI_DIR_REGEX,
+  buildAiDirRegex,
+  createPatternMatcher,
+  getCustomPatternError,
+  matchPattern,
+  normalizeCustomPattern,
+};

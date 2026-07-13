@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const { LOCAL_BIN_HINT, quoteSystemdArg, resolveZcleanBin } = require('./bin-path');
 
 const SYSTEMD_USER_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
@@ -72,6 +72,7 @@ function installSystemd() {
 
   // Reload and enable
   const messages = [];
+  let active = true;
   try {
     execSync('systemctl --user daemon-reload', { encoding: 'utf-8', timeout: 5000 });
     execSync(`systemctl --user enable --now ${SERVICE_NAME}.timer`, {
@@ -80,6 +81,7 @@ function installSystemd() {
     });
     messages.push(`Timer installed and enabled: ${TIMER_PATH}`);
   } catch (err) {
+    active = false;
     messages.push(`Files written but systemctl failed: ${err.message}`);
     messages.push(`Try manually: systemctl --user enable --now ${SERVICE_NAME}.timer`);
   }
@@ -96,6 +98,7 @@ function installSystemd() {
 
   return {
     installed: true,
+    active,
     message: messages.join('\n'),
   };
 }
@@ -105,39 +108,55 @@ function installSystemd() {
  *
  * @returns {{ removed: boolean, message: string }}
  */
-function removeSystemd() {
-  if (os.platform() !== 'linux') {
-    return { removed: false, message: 'systemd is Linux only.' };
+function removeSystemd(options = {}) {
+  const platform = options.platform || os.platform();
+  const servicePath = options.servicePath || SERVICE_PATH;
+  const timerPath = options.timerPath || TIMER_PATH;
+  const run = options.execFileSync || execFileSync;
+  if (platform !== 'linux') {
+    return { removed: false, failed: false, message: 'systemd is Linux only.' };
   }
 
-  // Disable timer
+  const hasFiles = fs.existsSync(servicePath) || fs.existsSync(timerPath);
   try {
-    execSync(`systemctl --user disable --now ${SERVICE_NAME}.timer`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
-  } catch {
-    // Might not be running
+    run('systemctl', ['--user', 'disable', '--now', `${SERVICE_NAME}.timer`], systemctlOptions());
+  } catch (err) {
+    if (!hasFiles && isSystemdUnitMissing(err)) {
+      return { removed: false, failed: false, message: 'Files and timer not found. Already uninstalled.' };
+    }
+    return {
+      removed: false,
+      failed: true,
+      message: 'Could not disable systemd timer; unit files preserved for a later retry.',
+    };
   }
 
-  // Remove files
-  let removed = false;
-  for (const filepath of [SERVICE_PATH, TIMER_PATH]) {
+  for (const filepath of [servicePath, timerPath]) {
     if (fs.existsSync(filepath)) {
       fs.unlinkSync(filepath);
-      removed = true;
     }
   }
 
-  // Reload daemon
   try {
-    execSync('systemctl --user daemon-reload', { encoding: 'utf-8', timeout: 5000 });
-  } catch { /* ignore */ }
+    run('systemctl', ['--user', 'daemon-reload'], systemctlOptions());
+  } catch {
+    return { removed: true, failed: true, message: 'Timer disabled, but systemd daemon-reload failed.' };
+  }
 
   return {
-    removed,
-    message: removed ? 'systemd timer and service removed.' : 'Files not found. Already uninstalled.',
+    removed: true,
+    failed: false,
+    message: 'systemd timer and service removed.',
   };
+}
+
+function systemctlOptions() {
+  return { encoding: 'utf-8', timeout: 5000 };
+}
+
+function isSystemdUnitMissing(err) {
+  const output = `${err?.message || ''}\n${String(err?.stdout || '')}\n${String(err?.stderr || '')}`;
+  return /unit .* (?:does not exist|not found|could not be found)/i.test(output);
 }
 
 module.exports = {

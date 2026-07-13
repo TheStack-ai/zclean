@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
 const { LOCAL_BIN_HINT, resolveZcleanBin } = require('./bin-path');
 
 const PLIST_NAME = 'com.zclean.hourly';
@@ -136,12 +136,14 @@ function installLaunchd() {
   } catch (err) {
     return {
       installed: true,
+      active: false,
       message: `Plist written to ${PLIST_PATH} but launchctl load failed: ${err.message}. Try: launchctl bootstrap gui/$(id -u) ${PLIST_PATH}`,
     };
   }
 
   return {
     installed: true,
+    active: true,
     message: `Hourly launchd agent installed: ${PLIST_PATH}`,
   };
 }
@@ -151,30 +153,77 @@ function installLaunchd() {
  *
  * @returns {{ removed: boolean, message: string }}
  */
-function removeLaunchd() {
-  if (os.platform() !== 'darwin') {
-    return { removed: false, message: 'launchd is macOS only.' };
+function removeLaunchd(options = {}) {
+  const platform = options.platform || os.platform();
+  const plistPath = options.plistPath || PLIST_PATH;
+  const uid = options.uid ?? process.getuid?.();
+  const run = options.execFileSync || execFileSync;
+
+  if (platform !== 'darwin') {
+    return { removed: false, failed: false, message: 'launchd is macOS only.' };
   }
 
-  if (!fs.existsSync(PLIST_PATH)) {
-    return { removed: false, message: 'Plist not found. Already uninstalled.' };
-  }
-
+  const hasPlist = fs.existsSync(plistPath);
+  let unloaded = false;
+  let serviceRemoved = false;
+  let stateUnknown = false;
   try {
-    execSync(`launchctl bootout gui/${process.getuid()} ${PLIST_PATH}`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
+    run('launchctl', ['bootout', `gui/${uid}/${PLIST_NAME}`], launchctlOptions());
+    unloaded = true;
+    serviceRemoved = true;
   } catch {
-    // Might not be loaded
+    if (hasPlist) {
+      try {
+        run('launchctl', ['bootout', `gui/${uid}`, plistPath], launchctlOptions());
+        unloaded = true;
+        serviceRemoved = true;
+      } catch {}
+    }
   }
 
-  fs.unlinkSync(PLIST_PATH);
+  if (!unloaded) {
+    try {
+      run('launchctl', ['print', `gui/${uid}/${PLIST_NAME}`], launchctlOptions());
+    } catch (err) {
+      if (isLaunchdServiceMissing(err)) {
+        unloaded = true;
+      } else {
+        stateUnknown = true;
+      }
+    }
+  }
+
+  if (!unloaded) {
+    return {
+      removed: false,
+      failed: true,
+      message: stateUnknown
+        ? 'Could not verify launchd service removal; plist preserved when present.'
+        : 'launchd agent is still loaded; plist preserved for a later retry.',
+    };
+  }
+
+  if (hasPlist) fs.unlinkSync(plistPath);
+  if (!hasPlist && !serviceRemoved) {
+    return { removed: false, failed: false, message: 'Plist and launchd service not found. Already uninstalled.' };
+  }
 
   return {
     removed: true,
-    message: `launchd agent removed: ${PLIST_PATH}`,
+    failed: false,
+    message: hasPlist
+      ? `launchd agent removed: ${plistPath}`
+      : 'launchd service removed; plist was already absent.',
   };
+}
+
+function launchctlOptions() {
+  return { encoding: 'utf-8', timeout: 5000 };
+}
+
+function isLaunchdServiceMissing(err) {
+  const output = `${err?.message || ''}\n${String(err?.stdout || '')}\n${String(err?.stderr || '')}`;
+  return /could not find service|service not found|no such process/i.test(output);
 }
 
 function escapeXml(value) {
