@@ -80,18 +80,20 @@ describe('install experience', () => {
 
   it('runs the packaged postinstall lifecycle from an actual tarball', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-packed-install-'));
-    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npm = process.env.npm_execpath
+      ? { command: process.execPath, prefix: [process.env.npm_execpath] }
+      : { command: process.platform === 'win32' ? 'npm.cmd' : 'npm', prefix: [] };
     try {
       const packageDir = path.join(root, 'package');
       const prefix = path.join(root, 'prefix');
       fs.mkdirSync(packageDir, { recursive: true });
-      const packed = spawnSync(npm, ['pack', '--pack-destination', packageDir, '--json'], {
+      const packed = spawnSync(npm.command, [...npm.prefix, 'pack', '--pack-destination', packageDir, '--json'], {
         cwd: repoRoot,
         encoding: 'utf-8',
       });
       assert.equal(packed.status, 0, packed.stderr);
       const tarball = path.join(packageDir, JSON.parse(packed.stdout)[0].filename);
-      const installed = spawnSync(npm, [
+      const installed = spawnSync(npm.command, [...npm.prefix,
         'install', '--global', '--prefix', prefix, tarball,
         '--foreground-scripts', '--cache', path.join(root, 'cache'),
       ], {
