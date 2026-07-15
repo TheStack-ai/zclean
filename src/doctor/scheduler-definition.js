@@ -30,9 +30,11 @@ function launchdProgramMatches(value, executable) {
 
 function extractSchedulerArgs(value, platform) {
   if (platform === 'darwin') {
-    const block = value.match(/<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/i);
-    if (!block) return null;
-    return [...block[1].matchAll(/<string>([\s\S]*?)<\/string>/gi)]
+    const blocks = [...value.matchAll(
+      /<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/gi
+    )];
+    if (blocks.length !== 1) return null;
+    return [...blocks[0][1].matchAll(/<string>([\s\S]*?)<\/string>/gi)]
       .map((match) => decodeXml(match[1]).trim());
   }
 
