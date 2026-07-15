@@ -39,7 +39,7 @@ describe('install experience', () => {
     }
   });
 
-  it('renders a precise provider-neutral init status rail', () => {
+  it('renders a precise three-step init status rail', () => {
     assert.ok(fs.existsSync(brandPath), 'expected src/cli-brand.js');
     const { renderInit } = require(brandPath);
     const output = renderInit({

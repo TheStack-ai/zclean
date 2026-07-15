@@ -10,6 +10,8 @@ const { generatePlist } = require('../src/installer/launchd');
 const { generateService } = require('../src/installer/systemd');
 const { cleanupFixture, makeFixture } = require('./cli-helpers');
 
+const LOCAL_ZCLEAN_JS = path.resolve(__dirname, '..', 'bin', 'zclean.js');
+
 describe('CLI doctor scheduler contract', () => {
   it('warns when an installed scheduler still contains automatic cleanup', () => {
     const cases = [
@@ -71,6 +73,57 @@ describe('CLI doctor scheduler contract', () => {
       }
     }
   });
+
+  for (const item of [
+    {
+      name: 'macOS',
+      platform: 'darwin',
+      file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
+      content: generatePlist(LOCAL_ZCLEAN_JS),
+      execSync: () => 'com.zclean.hourly',
+    },
+    {
+      name: 'Linux',
+      platform: 'linux',
+      file: ['.config', 'systemd', 'user', 'zclean.timer'],
+      service: ['.config', 'systemd', 'user', 'zclean.service'],
+      content: '[Timer]\nOnCalendar=hourly\n',
+      serviceContent: generateService(LOCAL_ZCLEAN_JS),
+      execSync: (command) => command.includes(' show ')
+        ? `argv[]=${LOCAL_ZCLEAN_JS} audit --json ;`
+        : 'active',
+    },
+  ]) {
+    it(`accepts a generated ${item.name} scheduler using local bin/zclean.js`, () => {
+      const fixture = makeFixture();
+      let output = '';
+      try {
+        const file = path.join(fixture.home, ...item.file);
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, item.content);
+        if (item.service) {
+          fs.writeFileSync(path.join(fixture.home, ...item.service), item.serviceContent);
+        }
+
+        runDoctor(DEFAULT_CONFIG, {
+          json: true,
+          scan: () => [],
+          stats: {},
+          runtime: {
+            platform: item.platform,
+            homedir: fixture.home,
+            execSync: item.execSync,
+          },
+          write: (chunk) => { output += chunk; },
+        });
+
+        const scheduler = JSON.parse(output).checks.find((check) => check.id === 'scheduler');
+        assert.equal(scheduler.status, 'ok');
+      } finally {
+        cleanupFixture(fixture);
+      }
+    });
+  }
 
   it('accepts generated report-only scheduler definitions on every platform', () => {
     const bin = process.platform === 'win32'

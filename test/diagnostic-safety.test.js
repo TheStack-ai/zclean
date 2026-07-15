@@ -30,4 +30,30 @@ describe('public diagnostic safety', () => {
     assert.equal(sanitized.includes('C:\\Users\\example\\private'), false);
     assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
   });
+
+  it('redacts bracket-adjacent POSIX and Windows local paths', () => {
+    const paths = [
+      '/Users/alice/.config/zclean/session.log',
+      'C:\\Users\\bob\\AppData\\Local\\zclean\\trace.log',
+    ];
+
+    const sanitized = sanitizeDiagnosticText(`posix[${paths[0]}] windows[${paths[1]}]`);
+
+    for (const localPath of paths) assert.equal(sanitized.includes(localPath), false);
+    assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
+    assert.equal(sanitized, 'posix[[local-path]] windows[[local-path]]');
+  });
+
+  it('redacts brace-adjacent POSIX and Windows local paths', () => {
+    const paths = [
+      '/home/carol/.local/share/zclean/report.json',
+      'D:\\work\\dave\\.zclean\\history.json',
+    ];
+
+    const sanitized = sanitizeDiagnosticText(`posix{${paths[0]}} windows{${paths[1]}}`);
+
+    for (const localPath of paths) assert.equal(sanitized.includes(localPath), false);
+    assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
+    assert.equal(sanitized, 'posix{[local-path]} windows{[local-path]}');
+  });
 });

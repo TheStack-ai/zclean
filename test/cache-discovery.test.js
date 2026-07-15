@@ -8,7 +8,7 @@ const path = require('path');
 const { buildCacheReport, scanCacheTargets } = require('../src/cache');
 const { cleanupFixture, makeFixture } = require('./cli-helpers');
 
-describe('workspace cache discovery', () => {
+describe('workspace cache hygiene', () => {
   it('finds supported workspace cache directories without scanning arbitrary files', () => {
     const fixture = makeFixture();
     try {

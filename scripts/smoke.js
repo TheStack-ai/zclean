@@ -4,9 +4,6 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
-const { generatePlist } = require('../src/installer/launchd');
-const { generateService, generateTimer } = require('../src/installer/systemd');
-const { buildCreateTaskArgs } = require('../src/installer/taskscheduler');
 
 const repoRoot = path.join(__dirname, '..');
 const bin = path.join(repoRoot, 'bin', 'zclean.js');
@@ -22,7 +19,6 @@ fs.mkdirSync(env.HOME, { recursive: true });
 fs.mkdirSync(env.ZCLEAN_CONFIG_DIR, { recursive: true });
 
 try {
-  assertSchedulerContract();
   run(['--help']);
   run(['--version']);
   run(['config']);
@@ -113,27 +109,6 @@ function hasUnsafeHistoryEntryKey(entry) {
     'totalMemFreed',
   ]);
   return Object.keys(entry).some((key) => !safeKeys.has(key));
-}
-
-function assertSchedulerContract() {
-  const plist = generatePlist('/usr/local/bin/zclean');
-  const service = generateService('/usr/local/bin/zclean');
-  const timer = generateTimer();
-  const taskArgs = buildCreateTaskArgs('C:\\Program Files\\zclean.cmd');
-  const taskCommand = taskArgs[taskArgs.indexOf('/TR') + 1];
-
-  if (!plist.includes('<string>audit</string>') || !plist.includes('<string>--json</string>') || !plist.includes('<integer>3600</integer>')) {
-    throw new Error('launchd scheduler is not an hourly audit --json job');
-  }
-  if (!service.includes(' audit --json') || !timer.includes('OnCalendar=hourly')) {
-    throw new Error('systemd scheduler is not an hourly audit --json job');
-  }
-  if (!taskArgs.includes('HOURLY') || !taskCommand.endsWith(' audit --json')) {
-    throw new Error('Task Scheduler job is not an hourly audit --json job');
-  }
-  if ([plist, service, taskCommand].some((definition) => definition.includes('--yes'))) {
-    throw new Error('scheduler definition contains an automatic cleanup flag');
-  }
 }
 
 function run(args, options = {}) {

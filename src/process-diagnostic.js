@@ -34,8 +34,8 @@ function sanitizeDiagnosticText(value) {
       (match) => `${match.split('=')[0]}=[redacted]`
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')
-    .replace(/(^|[\s("'=:;,])(?:[A-Za-z]:\\|\\\\)[^\s"']+/g, '$1[local-path]')
-    .replace(/(^|[\s("'=:;,])\/(?!\/)(?:[^\s"'\/]+\/)*[^\s"']+/g, '$1[local-path]')
+    .replace(/(^|[\s("'=:;,\[{])(?:[A-Za-z]:\\|\\\\)[^\s"'\]}]+/g, '$1[local-path]')
+    .replace(/(^|[\s("'=:;,\[{])\/(?!\/)(?:[^\s"'\/\]}]+\/)*[^\s"'\]}]+/g, '$1[local-path]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);

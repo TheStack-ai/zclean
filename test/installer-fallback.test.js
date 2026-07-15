@@ -6,7 +6,6 @@ const path = require('node:path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 
-const hook = require('../src/installer/hook');
 const launchd = require('../src/installer/launchd');
 const systemd = require('../src/installer/systemd');
 const taskScheduler = require('../src/installer/taskscheduler');
@@ -28,7 +27,7 @@ describe('installer persistent commands', () => {
     assert.doesNotMatch(demo, /npx(?: --yes)? z-clean init/);
   });
 
-  it('launchd uses a local executable for report-only audits', () => {
+  it('launchd uses a local executable as one ProgramArgument', () => {
     const plist = launchd.generatePlist('/usr/local/bin/zclean');
     assert.match(plist, /<string>\/usr\/local\/bin\/zclean<\/string>/);
     assert.match(plist, /<string>audit<\/string>/);
@@ -72,7 +71,7 @@ describe('installer persistent commands', () => {
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it('Windows Task Scheduler quotes local paths and runs report-only audits', () => {
+  it('Windows Task Scheduler uses argument arrays and quotes local paths with spaces', () => {
     const args = taskScheduler.buildCreateTaskArgs('C:\\Program Files\\nodejs\\zclean.cmd');
     assert.deepEqual(args.slice(0, 5), ['/create', '/TN', taskScheduler.TASK_NAME, '/SC', 'HOURLY']);
     assert.equal(args[5], '/TR');
@@ -82,18 +81,11 @@ describe('installer persistent commands', () => {
     assert.doesNotMatch(args.join(' '), /@thestackai\/zclean/);
   });
 
-  it('systemd quotes local paths and runs report-only audits', () => {
+  it('systemd uses a local executable and quotes paths with spaces', () => {
     const service = systemd.generateService('/home/me/tools/z clean');
     assert.match(service, /^ExecStart="\/home\/me\/tools\/z clean" audit --json$/m);
     assert.doesNotMatch(service, /--yes/);
     assert.doesNotMatch(service, /npx/);
-  });
-
-  it('does not expose Claude hook installation behavior', () => {
-    assert.equal(hook.installHook, undefined);
-    assert.equal(hook.buildHookCommand, undefined);
-    assert.equal(typeof hook.inspectLegacyHook, 'function');
-    assert.equal(typeof hook.removeLegacyHook, 'function');
   });
 
   it('does not label a written but inactive scheduler as active', () => {

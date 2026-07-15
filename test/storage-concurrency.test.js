@@ -150,6 +150,93 @@ describe('private storage concurrency', () => {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it('fails closed when the config parent changes after its directory descriptor opens', {
+    skip: process.platform === 'win32',
+  }, () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-config-parent-swap-'));
+    const root = path.join(parent, 'config');
+    const moved = path.join(parent, 'config-original');
+    const file = path.join(root, 'config.json');
+    const originalConfigDir = process.env.ZCLEAN_CONFIG_DIR;
+    const originalOpen = fs.openSync;
+    let directoryOpens = 0;
+    fs.mkdirSync(root);
+    process.env.ZCLEAN_CONFIG_DIR = root;
+    fs.writeFileSync(file, JSON.stringify({ whitelist: ['critical-process'] }));
+
+    try {
+      fs.openSync = function patchedOpen(target, flags, ...rest) {
+        const fd = originalOpen.call(fs, target, flags, ...rest);
+        if (target === root) {
+          directoryOpens += 1;
+          if (directoryOpens === 2) {
+            fs.renameSync(root, moved);
+            fs.mkdirSync(root);
+            fs.writeFileSync(file, JSON.stringify({ whitelist: [] }));
+          }
+        }
+        return fd;
+      };
+
+      assert.throws(
+        () => loadConfig(),
+        (error) => error?.code === 'ZCLEAN_UNSAFE_STORAGE'
+      );
+      assert.deepEqual(
+        JSON.parse(fs.readFileSync(path.join(moved, 'config.json'), 'utf8')).whitelist,
+        ['critical-process']
+      );
+      assert.equal(directoryOpens, 2);
+    } finally {
+      fs.openSync = originalOpen;
+      if (originalConfigDir === undefined) delete process.env.ZCLEAN_CONFIG_DIR;
+      else process.env.ZCLEAN_CONFIG_DIR = originalConfigDir;
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+  it('fails closed when the config parent changes between root validation and file read', {
+    skip: process.platform === 'win32',
+  }, () => {
+    const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-config-root-race-'));
+    const root = path.join(parent, 'config');
+    const moved = path.join(parent, 'config-original');
+    const file = path.join(root, 'config.json');
+    const originalConfigDir = process.env.ZCLEAN_CONFIG_DIR;
+    const originalExists = fs.existsSync;
+    let swapped = false;
+    fs.mkdirSync(root);
+    process.env.ZCLEAN_CONFIG_DIR = root;
+    fs.writeFileSync(file, JSON.stringify({ whitelist: ['critical-process'] }));
+
+    try {
+      fs.existsSync = function patchedExists(target) {
+        if (!swapped && target === file) {
+          swapped = true;
+          fs.renameSync(root, moved);
+          fs.mkdirSync(root);
+          fs.writeFileSync(file, JSON.stringify({ whitelist: [] }));
+        }
+        return originalExists.call(fs, target);
+      };
+
+      assert.throws(
+        () => loadConfig(),
+        (error) => error?.code === 'ZCLEAN_UNSAFE_STORAGE'
+      );
+      assert.equal(swapped, true);
+      assert.deepEqual(
+        JSON.parse(fs.readFileSync(path.join(moved, 'config.json'), 'utf8')).whitelist,
+        ['critical-process']
+      );
+    } finally {
+      fs.existsSync = originalExists;
+      if (originalConfigDir === undefined) delete process.env.ZCLEAN_CONFIG_DIR;
+      else process.env.ZCLEAN_CONFIG_DIR = originalConfigDir;
+      fs.rmSync(parent, { recursive: true, force: true });
+    }
+  });
 });
 
 function runChild(command, args) {

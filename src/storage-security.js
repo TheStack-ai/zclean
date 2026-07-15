@@ -6,11 +6,14 @@ const { randomBytes } = require('crypto');
 
 const SENSITIVE_HISTORY_FIELDS = ['args', 'argv', 'cmd', 'command', 'commandLine'];
 
-function secureDirectory(directory) {
+function secureDirectory(directory, expectedState = null) {
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   }
   const state = directoryState(directory);
+  if (expectedState && !sameIdentity(expectedState.identity, state.identity)) {
+    throw unsafeStorageError('Private storage root changed between operations.');
+  }
   if (process.platform !== 'win32') {
     const fd = fs.openSync(directory, fs.constants.O_RDONLY | directoryFlag() | noFollowFlag());
     try {
@@ -26,9 +29,9 @@ function secureDirectory(directory) {
   return state;
 }
 
-function writePrivateFile(file, content) {
+function writePrivateFile(file, content, options = {}) {
   const directory = path.dirname(file);
-  const directoryBefore = secureDirectory(directory);
+  const directoryBefore = secureDirectory(directory, options.directoryState);
   const before = destinationState(file);
   const tempFile = path.join(
     directory,
@@ -70,9 +73,9 @@ function writePrivateFile(file, content) {
   secureFile(file);
 }
 
-function appendPrivateFile(file, content) {
+function appendPrivateFile(file, content, options = {}) {
   const directory = path.dirname(file);
-  const directoryBefore = secureDirectory(directory);
+  const directoryBefore = secureDirectory(directory, options.directoryState);
   const before = destinationState(file);
   let fd = null;
   try {
@@ -105,7 +108,9 @@ function appendPrivateFile(file, content) {
   }
 }
 
-function secureFile(file) {
+function secureFile(file, options = {}) {
+  const directory = path.dirname(file);
+  const directoryBefore = secureDirectory(directory, options.directoryState);
   const state = destinationState(file);
   if (!state) return;
   const fd = fs.openSync(file, fs.constants.O_RDONLY | noFollowFlag());
@@ -114,15 +119,19 @@ function secureFile(file) {
     if (!stat.isFile() || !sameIdentity(state.identity, identity(stat))) {
       throw unsafeStorageError('Private storage file changed during inspection.');
     }
+    assertDirectoryUnchanged(directory, directoryBefore);
     if (process.platform !== 'win32') fs.fchmodSync(fd, 0o600);
   } finally {
     fs.closeSync(fd);
   }
 }
 
-function readPrivateFile(file) {
-  secureDirectory(path.dirname(file));
+function readPrivateFile(file, options = {}) {
+  const directory = path.dirname(file);
+  const directoryBefore = secureDirectory(directory, options.directoryState);
+  assertDirectoryUnchanged(directory, directoryBefore);
   const state = destinationState(file);
+  assertDirectoryUnchanged(directory, directoryBefore);
   if (!state) {
     const error = new Error(`ENOENT: no such file or directory, open '${file}'`);
     error.code = 'ENOENT';
@@ -134,7 +143,10 @@ function readPrivateFile(file) {
     if (!stat.isFile() || !sameIdentity(state.identity, identity(stat))) {
       throw unsafeStorageError('Private storage file changed during inspection.');
     }
-    return fs.readFileSync(fd, 'utf-8');
+    assertDirectoryUnchanged(directory, directoryBefore);
+    const content = fs.readFileSync(fd, 'utf-8');
+    assertDirectoryUnchanged(directory, directoryBefore);
+    return content;
   } finally {
     fs.closeSync(fd);
   }
@@ -147,10 +159,10 @@ function sanitizeHistoryEntry(entry) {
   return sanitized;
 }
 
-function sanitizeHistoryFile(file) {
+function sanitizeHistoryFile(file, options = {}) {
   if (!fs.existsSync(file)) return;
 
-  const raw = readPrivateFile(file);
+  const raw = readPrivateFile(file, options);
   const lines = raw.split(/\r?\n/).filter(Boolean);
   let changed = false;
   const sanitized = lines.map((line) => {
@@ -164,9 +176,9 @@ function sanitizeHistoryFile(file) {
   });
 
   if (changed) {
-    writePrivateFile(file, sanitized.join('\n') + (sanitized.length ? '\n' : ''));
+    writePrivateFile(file, sanitized.join('\n') + (sanitized.length ? '\n' : ''), options);
   } else {
-    secureFile(file);
+    secureFile(file, options);
   }
 }
 

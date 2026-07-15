@@ -141,13 +141,27 @@ describe('Windows kill verification', () => {
   });
 
   it('polls process existence without WMIC before force kill', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: null,
+    };
     const calls = [];
-    const result = killProcess(3210, 1000, {
+    let killed = false;
+    const result = killProcess(proc, 1000, {
       platform: 'win32',
       execSync(command) {
         calls.push(command);
-        if (command.startsWith('taskkill /PID 3210')) return '';
-        if (command.includes('Get-CimInstance')) return '[]';
+        if (command.startsWith('taskkill /PID 3210')) {
+          killed = true;
+          return '';
+        }
+        if (command.includes('Get-CimInstance')) {
+          return killed ? '[]' : JSON.stringify({
+            ProcessId: 3210,
+            CommandLine: proc.cmd,
+          });
+        }
         if (command.startsWith('timeout /T')) return '';
         throw new Error(`unexpected command: ${command}`);
       },
@@ -156,6 +170,22 @@ describe('Windows kill verification', () => {
     assert.deepEqual(result, { success: true, method: 'taskkill' });
     assert.ok(calls.some((command) => command.includes('Get-CimInstance')));
     assert.ok(!calls.some((command) => command.includes('wmic')));
+  });
+
+  it('rejects a bare numeric PID before invoking taskkill', () => {
+    const calls = [];
+    const result = killProcess(3210, 0, {
+      platform: 'win32',
+      now: () => 1000,
+      execSync(command) {
+        calls.push(command);
+        return '';
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /identity.+required/i);
+    assert.deepEqual(calls, []);
   });
 
   it('rechecks Windows identity before force-kill escalation', () => {

@@ -78,21 +78,22 @@ function parseMemory(str) {
  * Ensure the config directory exists.
  */
 function ensureConfigDir() {
-  secureDirectory(getConfigDir());
+  return secureDirectory(getConfigDir());
 }
 
 /**
  * Load config from disk, merging with defaults.
  */
 function loadConfig() {
-  ensureConfigDir();
-  sanitizeHistoryFile(getLogFile());
+  const directoryState = ensureConfigDir();
+  const storageOptions = { directoryState };
+  sanitizeHistoryFile(getLogFile(), storageOptions);
   const configFile = getConfigFile();
   if (fs.existsSync(configFile)) {
-    secureFile(configFile);
+    secureFile(configFile, storageOptions);
     let raw;
     try {
-      raw = readPrivateFile(configFile);
+      raw = readPrivateFile(configFile, storageOptions);
     } catch (error) {
       if (error?.code === 'ZCLEAN_UNSAFE_STORAGE') throw error;
       throw configLoadError('ZCLEAN_CONFIG_UNREADABLE', 'Config could not be read safely.', error);

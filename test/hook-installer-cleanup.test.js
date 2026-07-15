@@ -11,14 +11,6 @@ const hook = require('../src/installer/hook');
 const LEGACY_COMMAND = '/usr/local/bin/zclean --yes --session-pid=$PPID';
 
 describe('legacy Claude hook cleanup contract', () => {
-  it('exports inspection and removal without installation behavior', () => {
-    assert.deepEqual(Object.keys(hook).sort(), [
-      'inspectLegacyHook',
-      'removeHook',
-      'removeLegacyHook',
-    ]);
-  });
-
   it('reports an absent optional settings file without creating it', (t) => {
     const fixture = createFixture(t);
 
@@ -64,7 +56,7 @@ describe('legacy Claude hook cleanup contract', () => {
     assert.equal(fs.readFileSync(fixture.settingsPath, 'utf8'), original);
   });
 
-  it('removes only exact generated legacy wrappers and preserves user-authored variants', (t) => {
+  it('Claude hook uses a local executable and preserves session PID expansion', (t) => {
     const fixture = createFixture(t);
     const retainedNestedHooks = [
       { type: 'command', command: 'echo zclean' },

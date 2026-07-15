@@ -127,6 +127,26 @@ describe('Unix kill verification', () => {
     assert.ok(calls.includes('LC_ALL=C ps -o lstart= -p 3210'));
   });
 
+  it('rejects a bare numeric PID before sending any signal', () => {
+    const signals = [];
+    const commands = [];
+    const result = killProcess(3210, 0, {
+      platform: 'linux',
+      execSync(command) {
+        commands.push(command);
+        return '';
+      },
+      kill(pid, signal) {
+        signals.push([pid, signal]);
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /identity.+required/i);
+    assert.deepEqual(signals, []);
+    assert.deepEqual(commands, []);
+  });
+
   it('rechecks identity immediately before the first signal', () => {
     const proc = {
       pid: 3210,

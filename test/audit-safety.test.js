@@ -27,7 +27,7 @@ function classified(candidate, options = {}) {
   };
 }
 
-describe('audit report safety', () => {
+describe('audit report', () => {
   it('omits raw command lines and local paths from candidate JSON', () => {
     const privatePath = '/Users/example/private-project/server.js';
     const zombies = [

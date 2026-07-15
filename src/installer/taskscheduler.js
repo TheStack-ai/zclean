@@ -43,32 +43,48 @@ function installTaskScheduler(options = {}) {
 
   const args = buildCreateTaskArgs(binPath);
 
+  let deleteFailed = false;
   try {
     run('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], schedulerOptions());
   } catch (error) {
     if (!isTaskMissing(error)) {
-      return {
-        installed: false,
-        active: false,
-        message: 'Could not remove the existing scheduled task; it was preserved for a later retry.',
-      };
+      deleteFailed = true;
     }
   }
 
   try {
     run('schtasks', args, schedulerOptions());
-    return {
-      installed: true,
-      active: true,
-      message: `Task Scheduler task created: ${TASK_NAME} (hourly)`,
-    };
   } catch {
     return {
       installed: false,
       active: false,
-      message: 'The old task was removed, but the report-only task could not be created. Try running as administrator.',
+      message: deleteFailed
+        ? 'Existing task delete failed, and its in-place report-only replacement failed; the previous task may still run.'
+        : 'The old task was removed, but the report-only task could not be created. Try running as administrator.',
     };
   }
+
+  let definition;
+  try {
+    definition = run('schtasks', ['/query', '/TN', TASK_NAME, '/XML'], schedulerOptions());
+  } catch {}
+  if (!isExpectedTaskDefinition(definition, binPath)) {
+    return {
+      installed: false,
+      active: false,
+      message: deleteFailed
+        ? 'Existing task delete failed; the resulting command could not be verified as audit --json and a destructive command may still run.'
+        : 'The task was created, but its resulting command could not be verified as audit --json.',
+    };
+  }
+
+  return {
+    installed: true,
+    active: true,
+    message: deleteFailed
+      ? `Existing task delete failed; the task was replaced in place and its audit --json command was verified: ${TASK_NAME} (hourly)`
+      : `Task Scheduler task created and verified: ${TASK_NAME} (hourly)`,
+  };
 }
 
 /**
@@ -109,6 +125,28 @@ function schedulerOptions() {
 function isTaskMissing(err) {
   const output = `${err?.message || ''}\n${String(err?.stdout || '')}\n${String(err?.stderr || '')}`;
   return /task name(?: .*?)? does not exist|cannot find the (?:file|task)|task .* not found/i.test(output);
+}
+
+function isExpectedTaskDefinition(value, binPath) {
+  const xml = String(value || '');
+  const command = xml.match(/<Command>([\s\S]*?)<\/Command>/i);
+  const args = xml.match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
+  if (!command || !args) return false;
+  return normalizeTaskPath(decodeXml(command[1])) === normalizeTaskPath(binPath)
+    && decodeXml(args[1]).trim() === 'audit --json';
+}
+
+function normalizeTaskPath(value) {
+  return String(value).trim().replace(/^"([\s\S]*)"$/, '$1').replace(/\//g, '\\').toLowerCase();
+}
+
+function decodeXml(value) {
+  return String(value)
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
 }
 
 module.exports = {

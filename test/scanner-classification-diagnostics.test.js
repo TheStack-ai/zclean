@@ -62,7 +62,7 @@ describe('scan()', () => {
     assert.equal(result.length, 0);
   });
 
-  it('sessionPid never turns a live session descendant into a candidate', () => {
+  it('sessionPid limits results to processes with proven session ancestry', () => {
     const procs = [
       { pid: 500, ppid: 50, cmd: 'claude' },
       { pid: 501, ppid: 500, cmd: 'bash' },

@@ -15,7 +15,7 @@ AI coding runtime hygiene
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#platform-status)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/tests-239%20passing-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-246%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 

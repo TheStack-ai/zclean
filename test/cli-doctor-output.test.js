@@ -6,7 +6,7 @@ const { DEFAULT_CONFIG } = require('../src/config');
 const { runDoctor } = require('../src/doctor');
 const { cleanupFixture, makeFixture, parseStdoutJson, runCli } = require('./cli-helpers');
 
-describe('CLI doctor output contract', () => {
+describe('CLI doctor contract', () => {
   it('labels an old cleanup as informational instead of a scheduler failure', () => {
     const fixture = makeFixture();
     let output = '';

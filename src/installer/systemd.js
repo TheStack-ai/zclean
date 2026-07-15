@@ -65,40 +65,69 @@ function installSystemd(options = {}) {
     return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
   }
 
+  let stopFailed = false;
   try {
     stopExistingTimer(run);
+  } catch {
+    stopFailed = true;
+  }
+
+  const service = generateService(binPath);
+  const timer = generateTimer();
+  try {
+    fs.mkdirSync(path.dirname(servicePath), { recursive: true });
+    fs.mkdirSync(path.dirname(timerPath), { recursive: true });
+    fs.writeFileSync(servicePath, service, 'utf-8');
+    fs.writeFileSync(timerPath, timer, 'utf-8');
+    if (fs.readFileSync(servicePath, 'utf-8') !== service || fs.readFileSync(timerPath, 'utf-8') !== timer) {
+      throw new Error('Written unit files did not match the report-only definitions.');
+    }
   } catch {
     return {
       installed: false,
       active: false,
-      message: 'Could not stop the existing systemd timer; unit files were preserved for a later retry.',
+      message: stopFailed
+        ? 'Could not stop the existing systemd timer, and report-only files could not be written and verified; a previous destructive command may still be active.'
+        : 'The old timer was stopped, but the report-only systemd files could not be written and verified.',
     };
   }
 
   try {
-    fs.mkdirSync(path.dirname(servicePath), { recursive: true });
-    fs.mkdirSync(path.dirname(timerPath), { recursive: true });
-    fs.writeFileSync(servicePath, generateService(binPath), 'utf-8');
-    fs.writeFileSync(timerPath, generateTimer(), 'utf-8');
+    run('systemctl', ['--user', 'daemon-reload'], systemctlOptions());
+    run('systemctl', ['--user', 'enable', '--now', `${SERVICE_NAME}.timer`], systemctlOptions());
   } catch {
     return {
       installed: false,
       active: false,
-      message: 'The old timer was stopped, but the report-only systemd files could not be written.',
+      message: stopFailed
+        ? 'Could not stop the existing systemd timer, and systemctl could not activate the report-only replacement; a previous destructive command may still be active.'
+        : `Report-only files were written, but systemctl could not activate them. Try manually: systemctl --user enable --now ${SERVICE_NAME}.timer`,
+    };
+  }
+
+  let loadedCommand;
+  try {
+    loadedCommand = run(
+      'systemctl',
+      ['--user', 'show', `${SERVICE_NAME}.service`, '--property=ExecStart', '--value'],
+      systemctlOptions()
+    );
+  } catch {}
+  if (!isExpectedLoadedCommand(loadedCommand, binPath)) {
+    return {
+      installed: false,
+      active: false,
+      message: stopFailed
+        ? 'Report-only files were replaced after the existing timer could not be stopped, but the loaded command could not be verified and a previous destructive command may still be active.'
+        : 'Report-only files were enabled, but the loaded command could not be verified as audit --json.',
     };
   }
 
   const messages = [];
-  let active = true;
-  try {
-    run('systemctl', ['--user', 'daemon-reload'], systemctlOptions());
-    run('systemctl', ['--user', 'enable', '--now', `${SERVICE_NAME}.timer`], systemctlOptions());
-    messages.push(`Timer installed and enabled: ${timerPath}`);
-  } catch {
-    active = false;
-    messages.push('Report-only files were written, but systemctl could not activate them.');
-    messages.push(`Try manually: systemctl --user enable --now ${SERVICE_NAME}.timer`);
+  if (stopFailed) {
+    messages.push('The initial systemd timer stop failed; its files were replaced in place and the loaded audit --json command was verified.');
   }
+  messages.push(`Timer installed and enabled: ${timerPath}`);
 
   // Check linger
   try {
@@ -112,9 +141,16 @@ function installSystemd(options = {}) {
 
   return {
     installed: true,
-    active,
+    active: true,
     message: messages.join('\n'),
   };
+}
+
+function isExpectedLoadedCommand(value, binPath) {
+  const match = String(value || '').match(/argv\[\]=([^;\r\n]+)(?:;|$)/i);
+  if (!match) return false;
+  const command = match[1].trim();
+  return command === `${binPath} audit --json` || command === `"${binPath}" audit --json`;
 }
 
 function stopExistingTimer(run) {

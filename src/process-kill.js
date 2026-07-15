@@ -116,9 +116,15 @@ function normalizeStartTime(startTime) {
 }
 
 function killProcess(target, timeoutMs, options = {}) {
-  const runtime = runtimeOptions(options);
   const proc = target && typeof target === 'object' ? target : null;
-  const pid = proc ? proc.pid : target;
+  if (!proc) {
+    return {
+      success: false,
+      error: 'Process identity is required before a destructive kill.',
+    };
+  }
+  const runtime = runtimeOptions(options);
+  const pid = proc.pid;
   if (runtime.platform === 'win32') {
     return killProcessWindows(pid, timeoutMs, runtime, proc);
   }

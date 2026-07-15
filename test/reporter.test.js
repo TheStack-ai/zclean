@@ -2,7 +2,7 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { reportDryRun } = require('../src/reporter');
+const { reportDryRun, reportKill } = require('../src/reporter');
 
 function captureDryRun(candidates) {
   const lines = [];
@@ -16,7 +16,48 @@ function captureDryRun(candidates) {
   return lines.join('\n');
 }
 
+function captureReport(callback) {
+  const lines = [];
+  const original = console.log;
+  console.log = (...values) => lines.push(values.join(' '));
+  try {
+    callback();
+  } finally {
+    console.log = original;
+  }
+  return lines.join('\n');
+}
+
 describe('process report layout', () => {
+  it('keeps long custom pattern names inside the fixed process column', () => {
+    const name = `custom:${'x'.repeat(60)}`;
+    const output = captureReport(() => reportKill({
+      killed: [{ pid: 1000, name, mem: 1024 }],
+      failed: [],
+      skipped: [],
+      warning: null,
+    }));
+
+    assert.match(output, /custom:xxxxxx\.\.\./);
+    assert.doesNotMatch(output, new RegExp(name));
+  });
+
+  it('removes ANSI and OSC control sequences from process output', () => {
+    const output = captureReport(() => reportKill({
+      killed: [],
+      failed: [{
+        pid: 1001,
+        name: 'agent-worker',
+        error: '\u001b]8;;https://example.invalid\u0007click\u001b]8;;\u0007 \u001b[31mfailed\u001b[0m',
+      }],
+      skipped: [],
+      warning: null,
+    }));
+
+    assert.doesNotMatch(output, /\u001b|\u0007|example\.invalid/);
+    assert.match(output, /click failed/);
+  });
+
   it('shows sanitized classification metadata without custom literals', () => {
     const name = `custom:${'x'.repeat(60)}`;
     const candidates = [{
