@@ -5,6 +5,44 @@ const assert = require('node:assert/strict');
 const { verifyProcess, killProcess } = require('../src/killer');
 
 describe('Windows process identity query failures', () => {
+  it('fails closed when CIM returns a different PID', () => {
+    const result = verifyProcess({
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    }, {
+      platform: 'win32',
+      execSync(command) {
+        if (command.includes('Get-CimInstance')) {
+          return JSON.stringify({
+            ProcessId: 9999,
+            CommandLine: 'node C:\\agent\\server.js',
+            CreationDate: '2024-01-01T00:00:00.000Z',
+          });
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { valid: false, reason: 'identity-query-failed' });
+  });
+
+  it('fails closed when CIM returns malformed JSON', () => {
+    const result = verifyProcess({
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    }, {
+      platform: 'win32',
+      execSync(command) {
+        if (command.includes('Get-CimInstance')) return '{not-json';
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.deepEqual(result, { valid: false, reason: 'identity-query-failed' });
+  });
+
   it('fails closed when CIM returns a nonempty row without the requested PID', () => {
     const result = verifyProcess({
       pid: 3210,

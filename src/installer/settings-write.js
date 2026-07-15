@@ -8,7 +8,7 @@ function writeFileAtomic(filePath, contents, options = {}) {
   const directory = path.dirname(filePath);
   const tempName = options.tempName || createTempName(path.basename(filePath));
   if (!tempName || path.basename(tempName) !== tempName) {
-    return { ok: false, error: new Error('Atomic JSON temp name must stay in the destination directory.') };
+    return { ok: false, error: new Error('Atomic write temp name must stay in the destination directory.') };
   }
   const tempPath = path.join(directory, tempName);
   let initial;

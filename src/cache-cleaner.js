@@ -69,24 +69,19 @@ function cleanCacheTargets(candidates, options = {}) {
   };
 }
 
-function removeQuarantinedTree(context, directory = context.quarantinedPath) {
+function removeQuarantinedTree(context) {
   const { runtime, quarantinedPath } = context;
   assertQuarantineUnchanged(context);
-  const entries = runtime.readDirectory(directory, { withFileTypes: true });
+  const entries = runtime.readDirectory(quarantinedPath, { withFileTypes: true });
   assertQuarantineUnchanged(context);
 
   for (const entry of entries) {
     assertQuarantineUnchanged(context);
-    const target = path.join(directory, entry.name);
-    const stat = runtime.inspect(target);
-    assertQuarantineUnchanged(context);
-    if (stat.isDirectory() && !stat.isSymbolicLink()) removeQuarantinedTree(context, target);
-    else stageAndRemoveEntry(context, target);
+    stageAndRemoveEntry(context, path.join(quarantinedPath, entry.name));
     assertQuarantineUnchanged(context);
   }
 
-  runtime.removeDirectory(directory);
-  if (directory !== quarantinedPath) assertQuarantineUnchanged(context);
+  runtime.removeDirectory(quarantinedPath);
 }
 
 function stageAndRemoveEntry(context, target) {
@@ -98,7 +93,12 @@ function stageAndRemoveEntry(context, target) {
   runtime.rename(target, stagedPath);
   assertQuarantineUnchanged(context);
   try {
-    runtime.remove(stagedPath, { force: true });
+    const stat = runtime.inspect(stagedPath);
+    assertQuarantineUnchanged(context);
+    runtime.remove(stagedPath, {
+      force: true,
+      recursive: stat.isDirectory() && !stat.isSymbolicLink(),
+    });
   } finally {
     removeEmptyDirectory(runtime, stagingDirectory);
   }
