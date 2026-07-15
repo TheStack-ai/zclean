@@ -42,36 +42,40 @@ describe('scheduler definition safety', () => {
   });
 
   it('rejects XML-equivalent duplicate launchd ProgramArguments blocks', () => {
-    const plist = [
-      '<plist><dict>',
-      '<key>ProgramArguments</key><array>',
-      '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
-      '</array>',
-      '<key>Program&#65;rguments</key><array>',
-      '<string>/usr/local/bin/zclean</string><string>uninstall</string><string>--json</string>',
-      '</array>',
-      '</dict></plist>',
-    ].join('');
+    for (const encodedKey of ['Program&#65;rguments', '<![CDATA[ProgramArguments]]>']) {
+      const plist = [
+        '<plist><dict>',
+        '<key>ProgramArguments</key><array>',
+        '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
+        '</array>',
+        `<key>${encodedKey}</key><array>`,
+        '<string>/usr/local/bin/zclean</string><string>uninstall</string><string>--json</string>',
+        '</array>',
+        '</dict></plist>',
+      ].join('');
 
-    const inspection = inspectSchedulerDefinition(plist, 'darwin');
+      const inspection = inspectSchedulerDefinition(plist, 'darwin');
 
-    assert.equal(inspection.safe, false);
-    assert.match(inspection.reason, /contract|verified/i);
+      assert.equal(inspection.safe, false, encodedKey);
+      assert.match(inspection.reason, /contract|verified/i, encodedKey);
+    }
   });
 
   it('rejects an XML-equivalent launchd Program mismatch', () => {
-    const plist = [
-      '<plist><dict>',
-      '<key>Progr&#97;m</key><string>/tmp/untrusted-runner</string>',
-      '<key>ProgramArguments</key><array>',
-      '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
-      '</array>',
-      '</dict></plist>',
-    ].join('');
+    for (const encodedKey of ['Progr&#97;m', '<![CDATA[Program]]>']) {
+      const plist = [
+        '<plist><dict>',
+        `<key>${encodedKey}</key><string>/tmp/untrusted-runner</string>`,
+        '<key>ProgramArguments</key><array>',
+        '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
+        '</array>',
+        '</dict></plist>',
+      ].join('');
 
-    const inspection = inspectSchedulerDefinition(plist, 'darwin');
+      const inspection = inspectSchedulerDefinition(plist, 'darwin');
 
-    assert.equal(inspection.safe, false);
-    assert.match(inspection.reason, /executable|contract|verified/i);
+      assert.equal(inspection.safe, false, encodedKey);
+      assert.match(inspection.reason, /executable|contract|verified/i, encodedKey);
+    }
   });
 });

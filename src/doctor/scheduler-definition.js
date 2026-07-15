@@ -29,12 +29,21 @@ function normalizeLaunchdKeys(value) {
   const normalized = value.replace(
     /<key\b[^>]*>([\s\S]*?)<\/key>/gi,
     (_match, key) => {
-      const decoded = decodeXml(key);
-      if (/&(?:#(?:x[0-9a-f]+|\d+)|[a-z_:][\w:.-]*);/i.test(decoded)) unresolved = true;
-      return `<key>${decoded}</key>`;
+      const decoded = decodeLaunchdKey(key);
+      if (decoded === null) unresolved = true;
+      return `<key>${decoded || ''}</key>`;
     }
   );
   return unresolved ? null : normalized;
+}
+
+function decodeLaunchdKey(value) {
+  const text = value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
+  if (/[<>]/.test(text)) return null;
+  const decoded = decodeXml(text);
+  return /[<>]|&(?:#(?:x[0-9a-f]+|\d+)|[a-z_:][\w:.-]*);/i.test(decoded)
+    ? null
+    : decoded;
 }
 
 function launchdProgramMatches(value, executable) {
