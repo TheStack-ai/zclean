@@ -48,7 +48,7 @@ function runProtect(config, flags, positional) {
     case 'remove':
       return protectRemove(config, flags, positional);
     default:
-      console.error(c('red', `  Unknown protect command: ${subcommand}`));
+      console.error(c('red', `  Unknown protect command: ${sanitizeDiagnosticText(subcommand)}`));
       console.error(c('gray', '  Usage: zclean protect list|add|remove'));
       process.exit(1);
   }

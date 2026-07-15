@@ -11,10 +11,21 @@ function inspectSchedulerDefinition(value, platform) {
   if (!args || args.length !== 3 || args[1] !== 'audit' || args[2] !== '--json') {
     return { safe: false, reason: 'command is not the report-only audit contract' };
   }
+  if (platform === 'darwin' && !launchdProgramMatches(value, args[0])) {
+    return { safe: false, reason: 'launchd Program does not match the scheduled executable' };
+  }
   if (!isZcleanExecutable(args[0])) {
     return { safe: false, reason: 'scheduled executable is not zclean' };
   }
   return { safe: true };
+}
+
+function launchdProgramMatches(value, executable) {
+  const programs = [...value.matchAll(
+    /<key>\s*Program\s*<\/key>\s*<string>([\s\S]*?)<\/string>/gi
+  )];
+  return programs.length === 0
+    || (programs.length === 1 && decodeXml(programs[0][1]).trim() === executable);
 }
 
 function extractSchedulerArgs(value, platform) {

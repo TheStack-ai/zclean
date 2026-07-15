@@ -180,6 +180,35 @@ describe('workspace cache cleanup safety', () => {
     }
   });
 
+  it('does not reclaim a cache file whose inode is shared by an outside hard link', (t) => {
+    const fixture = makeFixture();
+    try {
+      const workspace = path.join(fixture.root, 'workspace');
+      const cacheFile = path.join(workspace, '.turbo', 'shared.bin');
+      const outsideFile = path.join(fixture.root, 'outside-shared.bin');
+      writeFile(cacheFile, 'outside-hard-link-must-survive');
+      try {
+        fs.linkSync(cacheFile, outsideFile);
+      } catch (error) {
+        if (['EACCES', 'EPERM', 'ENOTSUP'].includes(error.code)) {
+          t.skip(`hard links unavailable: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+
+      const result = cleanCacheTargets(scanCacheTargets(workspace));
+
+      assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'outside-hard-link-must-survive');
+      assert.equal(fs.readFileSync(cacheFile, 'utf8'), 'outside-hard-link-must-survive');
+      assert.equal(result.deleted.length, 0);
+      assert.equal(result.failed.length, 1);
+      assert.equal(result.failed[0].error.causeCode, 'CACHE_SHARED_INODE');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('reports cleanup failures and exposes a non-success outcome without absolute paths', () => {
     const fixture = makeFixture();
     const output = [];

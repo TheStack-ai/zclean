@@ -20,6 +20,7 @@ function cleanCacheTargets(candidates, options = {}) {
     rename: options.renameSync || fs.renameSync,
     removeDirectory: options.rmdirSync || fs.rmdirSync,
     truncate: options.ftruncateSync || fs.ftruncateSync,
+    unlink: options.unlinkSync || fs.unlinkSync,
   };
   const ordered = [...candidates]
     .sort((left, right) => String(right.relativePath || '').length - String(left.relativePath || '').length);
@@ -52,7 +53,8 @@ function cleanCacheTargets(candidates, options = {}) {
         continue;
       }
       removeQuarantinedTree({ runtime, candidate, quarantinedPath });
-      removeEmptyDirectory(runtime, quarantineDirectory);
+      const cleanupError = removeEmptyDirectory(runtime, quarantineDirectory);
+      if (cleanupError) throw cleanupError;
       deleted.push(candidate);
     } catch (error) {
       const restoreError = restoreQuarantined(
@@ -115,6 +117,7 @@ function stageAndRemoveEntry(context, target) {
   assertQuarantineUnchanged(context);
   let initial;
   let descriptor = null;
+  let operationError = null;
   try {
     initial = runtime.inspect(stagedPath);
     assertQuarantineUnchanged(context);
@@ -122,6 +125,11 @@ function stageAndRemoveEntry(context, target) {
     if (initial.isDirectory() && !initial.isSymbolicLink()) {
       removeStagedDirectory(context, stagedPath, initial);
     } else if (initial.isFile() && !initial.isSymbolicLink()) {
+      if (Number(initial.nlink) !== 1) {
+        const error = new Error('Staged cache file shares its inode with another path.');
+        error.code = 'CACHE_SHARED_INODE';
+        throw error;
+      }
       descriptor = runtime.open(stagedPath, fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW || 0));
       const opened = runtime.inspectDescriptor(descriptor, { bigint: true });
       if (!sameIdentity(initial, opened)) {
@@ -132,10 +140,20 @@ function stageAndRemoveEntry(context, target) {
       if (!sameIdentity(initial, truncated)) {
         throw new Error('Staged cache file identity changed while it was being reclaimed.');
       }
+      assertStagedUnchanged(runtime, stagedPath, initial);
+      runtime.unlink(stagedPath);
       runtime.close(descriptor);
       descriptor = null;
+    } else if (initial.isSymbolicLink()) {
+      assertStagedUnchanged(runtime, stagedPath, initial);
+      runtime.unlink(stagedPath);
+    } else {
+      const error = new Error('Staged cache entry type is not supported.');
+      error.code = 'CACHE_ENTRY_UNSUPPORTED';
+      throw error;
     }
   } catch (error) {
+    operationError = error;
     if (descriptor !== null) {
       runtime.close(descriptor);
       descriptor = null;
@@ -145,7 +163,12 @@ function stageAndRemoveEntry(context, target) {
     throw error;
   } finally {
     if (descriptor !== null) runtime.close(descriptor);
-    removeEmptyDirectory(runtime, stagingDirectory);
+    const cleanupError = removeEmptyDirectory(runtime, stagingDirectory);
+    if (cleanupError && operationError && !operationError.recoveryError) {
+      operationError.recoveryError = cleanupError;
+    } else if (cleanupError && !operationError) {
+      throw cleanupError;
+    }
   }
 }
 

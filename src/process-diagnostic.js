@@ -15,8 +15,7 @@ function diagnosticMessage(error) {
 }
 
 function sanitizeDiagnosticText(value) {
-  return String(value || '')
-    .replace(/\bBearer\s+\\"[\s\S]*?(?:\\"|$)/gi, 'Bearer [redacted]')
+  return redactBearerValues(String(value || ''))
     .replace(
       /\bBearer\s+(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|`[^`]*(?:`|$)|[^\s,;"'`{}\[\]]+)/gi,
       'Bearer ZCLEAN_REDACTED_VALUE'
@@ -64,9 +63,54 @@ function sanitizeDiagnosticText(value) {
       /(^|[\s("'`=:;,\[{])\/(?!\/)[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
       '$1[local-path]'
     )
+    .replace(/ZCLEAN_REDACTED_VALUE/g, '[redacted]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);
+}
+
+function redactBearerValues(input) {
+  const matcher = /\bBearer\s+/gi;
+  let cursor = 0;
+  let output = '';
+  let match;
+
+  while ((match = matcher.exec(input)) !== null) {
+    output += input.slice(cursor, match.index) + 'Bearer ZCLEAN_REDACTED_VALUE';
+    const valueStart = matcher.lastIndex;
+    const valueEnd = bearerValueEnd(input, valueStart);
+    cursor = valueEnd;
+    matcher.lastIndex = valueEnd > valueStart ? valueEnd : valueStart + 1;
+  }
+  return output + input.slice(cursor);
+}
+
+function bearerValueEnd(input, start) {
+  if (input.startsWith('[redacted]', start)) return start + '[redacted]'.length;
+  if (input.startsWith('ZCLEAN_REDACTED_VALUE', start)) {
+    return start + 'ZCLEAN_REDACTED_VALUE'.length;
+  }
+
+  let quotePosition = start;
+  while (input[quotePosition] === '\\') quotePosition++;
+  const leadingSlashes = quotePosition - start;
+  const quote = input[quotePosition];
+  if (!['"', "'", '`'].includes(quote)) {
+    let end = start;
+    while (end < input.length && !/[\s,;"'`{}\[\]]/.test(input[end])) end++;
+    return end;
+  }
+
+  for (let index = quotePosition + 1; index < input.length; index++) {
+    if (input[index] !== quote) continue;
+    let precedingSlashes = 0;
+    for (let cursor = index - 1; cursor >= 0 && input[cursor] === '\\'; cursor--) precedingSlashes++;
+    const closes = leadingSlashes === 0
+      ? precedingSlashes % 2 === 0
+      : precedingSlashes >= leadingSlashes;
+    if (closes) return index + 1;
+  }
+  return input.length;
 }
 
 function sanitizeDiagnostic(value) {

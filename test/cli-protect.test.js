@@ -1,0 +1,199 @@
+'use strict';
+
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const path = require('path');
+const { cleanupFixture, makeFixture, parseStdoutJson, runCli } = require('./cli-helpers');
+
+describe('CLI protect contracts', () => {
+  it('protect add/list/remove manages whitelist strings in config', () => {
+    const fixture = makeFixture();
+
+    try {
+      let result = runCli(['protect', 'add', 'keep-me'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /keep-me/);
+
+      result = runCli(['protect', 'list', '--json'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      const list = parseStdoutJson(result);
+      assert.equal(list.schemaVersion, 1);
+      assert.equal(Object.prototype.hasOwnProperty.call(list, 'configFile'), false);
+      assert.deepEqual(list.whitelist, ['keep-me']);
+
+      const savedConfig = JSON.parse(fs.readFileSync(path.join(fixture.configDir, 'config.json'), 'utf-8'));
+      assert.deepEqual(savedConfig.whitelist, ['keep-me']);
+      assert.ok(savedConfig.whitelist.every((entry) => typeof entry === 'string'));
+
+      result = runCli(['protect', 'remove', '--index=1'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      assert.match(result.stdout, /Removed/);
+
+      result = runCli(['protect', 'list', '--json'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      assert.deepEqual(parseStdoutJson(result).whitelist, []);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('redacts local paths and embedded credentials from protect list JSON', () => {
+    const fixture = makeFixture();
+    const privateEntry = '/Users/alice/private-project/token=super-secret';
+
+    try {
+      fs.writeFileSync(
+        path.join(fixture.configDir, 'config.json'),
+        JSON.stringify({ whitelist: [privateEntry, 'OPENAI_API_KEY=openai-secret'] }),
+        'utf8'
+      );
+
+      const result = runCli(['protect', 'list', '--json'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      const serialized = JSON.stringify(parseStdoutJson(result));
+      assert.equal(serialized.includes('/Users/alice/private-project'), false);
+      assert.equal(serialized.includes('super-secret'), false);
+      assert.equal(serialized.includes('openai-secret'), false);
+      assert.match(serialized, /\[local-path\]|\[redacted\]/);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('redacts credential values from every protect text response', () => {
+    const fixture = makeFixture();
+    const entry = 'OPENAI_API_KEY=protect-output-secret';
+
+    try {
+      const results = [
+        runCli(['protect', 'add', entry], { fixture }),
+        runCli(['protect', 'add', entry], { fixture }),
+        runCli(['protect', 'list'], { fixture }),
+        runCli(['protect', 'remove', entry], { fixture }),
+      ];
+
+      assert.deepEqual(results.map((result) => result.status), [0, 1, 0, 0]);
+      for (const result of results) {
+        const output = `${result.stdout}\n${result.stderr}`;
+        assert.equal(output.includes('protect-output-secret'), false);
+        assert.match(output, /\[redacted\]/);
+      }
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('redacts credentials from unknown protect commands in text and JSON modes', () => {
+    const secret = 'unknown-command-secret';
+    const command = `OPENAI_API_KEY=${secret}`;
+
+    for (const args of [['protect', command], ['protect', command, '--json']]) {
+      const result = runCli(args);
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      assert.equal(result.status, 1);
+      assert.equal(output.includes(secret), false);
+      assert.match(output, /\[redacted\]/);
+    }
+  });
+
+  it('protect add only persists the whitelist change in a minimal existing config', () => {
+    const fixture = makeFixture();
+
+    try {
+      fs.writeFileSync(
+        path.join(fixture.configDir, 'config.json'),
+        JSON.stringify({ whitelist: ['old-entry'], customNote: 'keep-this' }, null, 2) + '\n',
+        'utf-8'
+      );
+
+      const result = runCli(['protect', 'add', 'new-entry'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+
+      const savedConfig = JSON.parse(fs.readFileSync(path.join(fixture.configDir, 'config.json'), 'utf-8'));
+      assert.deepEqual(savedConfig, {
+        whitelist: ['old-entry', 'new-entry'],
+        customNote: 'keep-this',
+      });
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('does not overwrite a concurrent config update when the safety re-read fails', () => {
+    const fixture = makeFixture();
+    const configFile = path.join(fixture.configDir, 'config.json');
+    const preload = path.join(fixture.root, 'fail-second-config-read.cjs');
+    const concurrentConfig = JSON.stringify({
+      whitelist: ['current-entry'],
+      concurrentValue: 'preserve-me',
+    }, null, 2) + '\n';
+
+    try {
+      fs.writeFileSync(configFile, JSON.stringify({ whitelist: ['stale-entry'] }, null, 2) + '\n');
+      fs.writeFileSync(preload, [
+        "'use strict';",
+        "const fs = require('node:fs');",
+        'const originalRead = fs.readFileSync;',
+        'let descriptorReads = 0;',
+        'fs.readFileSync = function injectedRead(target, ...args) {',
+        "  if (typeof target === 'number' && ++descriptorReads === 2) {",
+        "    fs.writeFileSync(process.env.ZCLEAN_RACE_CONFIG, Buffer.from(process.env.ZCLEAN_RACE_BYTES, 'base64'));",
+        "    const error = new Error('injected config re-read failure');",
+        "    error.code = 'EIO';",
+        '    throw error;',
+        '  }',
+        '  return originalRead.call(this, target, ...args);',
+        '};',
+      ].join('\n'));
+      fixture.env.NODE_OPTIONS = `--require=${preload}`;
+      fixture.env.ZCLEAN_RACE_CONFIG = configFile;
+      fixture.env.ZCLEAN_RACE_BYTES = Buffer.from(concurrentConfig).toString('base64');
+
+      const result = runCli(['protect', 'add', 'new-entry'], { fixture });
+
+      assert.equal(result.status, 1);
+      assert.match(`${result.stdout}\n${result.stderr}`, /could not reload|no changes were written/i);
+      assert.equal(fs.readFileSync(configFile, 'utf8'), concurrentConfig);
+      assert.doesNotMatch(result.stdout, /Protected:/);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('protect add rejects duplicate and empty entries', () => {
+    const fixture = makeFixture();
+
+    try {
+      const first = runCli(['protect', 'add', 'keep-me'], { fixture });
+      assert.equal(first.status, 0, first.stderr);
+
+      const duplicate = runCli(['protect', 'add', 'keep-me'], { fixture });
+      assert.equal(duplicate.status, 1);
+      assert.match(`${duplicate.stdout}\n${duplicate.stderr}`, /already protected|duplicate/i);
+
+      const empty = runCli(['protect', 'add', ''], { fixture });
+      assert.equal(empty.status, 1);
+      assert.match(`${empty.stdout}\n${empty.stderr}`, /empty|required/i);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('protect remove rejects out-of-range indexes', () => {
+    const fixture = makeFixture();
+
+    try {
+      const add = runCli(['protect', 'add', 'keep-me'], { fixture });
+      assert.equal(add.status, 0, add.stderr);
+
+      const result = runCli(['protect', 'remove', '--index=2'], { fixture });
+      assert.equal(result.status, 1);
+      assert.match(`${result.stdout}\n${result.stderr}`, /out of range|invalid/i);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+});

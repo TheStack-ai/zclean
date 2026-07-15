@@ -175,8 +175,12 @@ function killProcessUnix(pid, timeoutMs, runtime = runtimeOptions(), proc = null
     try {
       runtime.kill(safePid, 0);
       try { runtime.execSync('sleep 0.5', { timeout: 2000 }); } catch {}
-    } catch {
-      return { success: true, method: 'sigterm' };
+    } catch (error) {
+      if (error?.code === 'ESRCH') return { success: true, method: 'sigterm' };
+      return {
+        success: false,
+        error: `Process liveness verification failed: ${error?.code || 'unknown'}`,
+      };
     }
   }
 

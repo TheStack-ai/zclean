@@ -148,6 +148,28 @@ describe('public diagnostic safety', () => {
     assert.equal(truncatedOutput, 'provider returned Bearer [redacted]');
   });
 
+  it('redacts adjacent escaped Bearer quote variants at every supported depth', () => {
+    const variants = [
+      { slashCount: 1, quote: "'" },
+      { slashCount: 1, quote: '`' },
+      { slashCount: 2, quote: '"' },
+    ];
+
+    for (const { slashCount, quote } of variants) {
+      const marker = '\\'.repeat(slashCount) + quote;
+      for (const truncated of [false, true]) {
+        const secret = `escaped-${slashCount}-${quote.charCodeAt(0)}-${truncated ? 'tail' : 'complete'}`;
+        const suffix = truncated ? '' : `${marker} after retry`;
+        const output = sanitizeDiagnosticText(`provider returned Bearer ${marker}${secret}${suffix}`);
+
+        assert.equal(output.includes(secret), false);
+        assert.equal(output, truncated
+          ? 'provider returned Bearer [redacted]'
+          : 'provider returned Bearer [redacted] after retry');
+      }
+    }
+  });
+
   it('redacts file URIs with a localhost authority', () => {
     const input = 'failed file://localhost/Users/alice/private/report.json';
 
