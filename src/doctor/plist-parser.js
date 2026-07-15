@@ -67,7 +67,7 @@ function parseDict(source, index) {
     if (!key) return null;
     const value = parseValue(source, key.next);
     if (!value) return null;
-    entries.push({ key: key.node.value.trim(), value: value.node });
+    entries.push({ key: key.node.value, value: value.node });
     next = value.next;
   }
 }

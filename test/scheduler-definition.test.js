@@ -5,6 +5,41 @@ const assert = require('node:assert/strict');
 const { inspectSchedulerDefinition } = require('../src/doctor/scheduler-definition');
 
 describe('scheduler definition safety', () => {
+  it('accepts exact report-only values encoded with numeric XML references', () => {
+    for (const encodedKey of ['Program&#65;rguments', 'Program&#x41;rguments']) {
+      const plist = [
+        '<plist><dict>',
+        `<key>${encodedKey}</key><array>`,
+        '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
+        '</array>',
+        '</dict></plist>',
+      ].join('');
+
+      assert.deepEqual(inspectSchedulerDefinition(plist, 'darwin'), { safe: true }, encodedKey);
+    }
+  });
+
+  it('rejects values that only match the launchd contract after trimming', () => {
+    const exact = [
+      '<key>ProgramArguments</key><array>',
+      '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
+      '</array>',
+    ].join('');
+    const definitions = [
+      exact.replace('ProgramArguments', ' ProgramArguments '),
+      exact.replace('/usr/local/bin/zclean', '/usr/local/bin/zclean '),
+      exact.replace('<string>audit</string>', '<string> audit </string>'),
+    ];
+
+    for (const definition of definitions) {
+      const inspection = inspectSchedulerDefinition(
+        `<plist><dict>${definition}</dict></plist>`,
+        'darwin'
+      );
+      assert.equal(inspection.safe, false, definition);
+    }
+  });
+
   it('rejects a launchd Program that disagrees with report-only ProgramArguments', () => {
     const programValues = [
       '<key>Program</key><string>/tmp/untrusted-runner</string>',

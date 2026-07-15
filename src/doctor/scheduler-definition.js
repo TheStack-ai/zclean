@@ -31,7 +31,7 @@ function launchdProgramMatches(definition, executable) {
   return programs.length === 0
     || (programs.length === 1
       && programs[0].value.type === 'string'
-      && programs[0].value.value.trim() === executable);
+      && programs[0].value.value === executable);
 }
 
 function extractSchedulerArgs(value, platform) {
@@ -40,7 +40,7 @@ function extractSchedulerArgs(value, platform) {
     if (entries.length !== 1 || entries[0].value.type !== 'array') return null;
     const args = entries[0].value.values;
     if (args.length !== 3 || args.some((arg) => arg.type !== 'string')) return null;
-    return args.map((arg) => arg.value.trim());
+    return args.map((arg) => arg.value);
   }
 
   if (platform === 'linux') {
@@ -66,9 +66,9 @@ function extractSchedulerArgs(value, platform) {
     const command = exec?.[1].match(/<Command>([\s\S]*?)<\/Command>/i);
     const argumentsValue = exec?.[1].match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
     if (!command || !argumentsValue) return null;
-    const argumentsText = decodeXml(argumentsValue[1]).trim();
+    const argumentsText = decodeXml(argumentsValue[1]);
     if (argumentsText !== 'audit --json') return null;
-    return [decodeXml(command[1]).trim(), 'audit', '--json'];
+    return [decodeXml(command[1]), 'audit', '--json'];
   }
   return null;
 }
@@ -79,7 +79,7 @@ function parseExactCommand(value) {
 }
 
 function isZcleanExecutable(value) {
-  const unquoted = String(value || '').trim().replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
+  const unquoted = String(value || '').replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
   const basename = unquoted.split(/[\\/]/).pop().toLowerCase();
   return basename === 'zclean'
     || basename === 'zclean.js'
