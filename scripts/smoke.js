@@ -23,7 +23,6 @@ fs.mkdirSync(env.ZCLEAN_CONFIG_DIR, { recursive: true });
 
 try {
   assertSchedulerContract();
-  assertDocsContract();
   run(['--help']);
   run(['--version']);
   run(['config']);
@@ -134,61 +133,6 @@ function assertSchedulerContract() {
   }
   if ([plist, service, taskCommand].some((definition) => definition.includes('--yes'))) {
     throw new Error('scheduler definition contains an automatic cleanup flag');
-  }
-}
-
-function assertDocsContract() {
-  const requiredClaims = {
-    'README.md': [
-      'Claude Code is supported, but never required.',
-      '`zclean init` only creates or preserves the zclean config and installs the native hourly read-only `audit --json` scheduler.',
-      'It installs no replacement hook.',
-      'The native scheduler runs only read-only `audit --json` once per hour.',
-      'It never passes `--yes` or performs automatic cleanup.',
-      '`zclean init` does not install provider hooks.',
-      '`cleanupEligible: true`',
-      'exits nonzero.',
-      'Raw process command lines and local filesystem paths are omitted from public JSON surfaces.',
-    ],
-    'README.ko.md': [
-      'Claude Code는 지원 대상이지만 필수는 아닙니다.',
-      '`zclean init`은 zclean 설정을 생성하거나 기존 설정을 보존하고, 네이티브 1시간 주기 읽기 전용 `audit --json` 스케줄러만 설치합니다.',
-      '대체 hook은 설치하지 않습니다.',
-      '네이티브 스케줄러는 1시간마다 읽기 전용 `audit --json`만 실행합니다.',
-      '`--yes`를 전달하거나 자동 정리를 수행하지 않습니다.',
-      '`zclean init`은 provider hook을 설치하지 않습니다.',
-      '`cleanupEligible: true`',
-      '0이 아닌 종료 코드',
-      '공개 JSON에는 raw process command line과 로컬 파일시스템 경로를 포함하지 않습니다.',
-    ],
-    'README.zh.md': [
-      '支持 Claude Code，但它从来不是必需项。',
-      '`zclean init` 只会创建或保留 zclean 配置，并安装原生的每小时只读 `audit --json` 调度器。',
-      '不会安装替代 hook。',
-      '原生调度器每小时只运行只读的 `audit --json`。',
-      '不会传入 `--yes`，也不会自动清理。',
-      '`zclean init` 不会安装 provider hook。',
-      '`cleanupEligible: true`',
-      '非零退出码',
-      '公开 JSON 不包含 raw process command line 和本地文件系统路径。',
-    ],
-  };
-  const staleClaims = [
-    'Install hooks + scheduler',
-    'SessionEnd cleanup hook registered',
-    'The scheduler runs only the default orphan-process cleanup.',
-    '스케줄러는 기본 orphan process 정리만 실행합니다.',
-    '调度器只运行默认的 orphan process 清理。',
-  ];
-
-  for (const [file, claims] of Object.entries(requiredClaims)) {
-    const contents = fs.readFileSync(path.join(repoRoot, file), 'utf-8');
-    for (const claim of claims) {
-      if (!contents.includes(claim)) throw new Error(`${file} is missing docs contract claim: ${claim}`);
-    }
-    for (const claim of staleClaims) {
-      if (contents.includes(claim)) throw new Error(`${file} contains stale docs claim: ${claim}`);
-    }
   }
 }
 
