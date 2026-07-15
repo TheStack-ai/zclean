@@ -18,10 +18,20 @@ function canonicalDirectoryState(value) {
 }
 
 function containedDirectoryState(value, canonicalRoot) {
+  return inspectContainedDirectory(value, canonicalRoot).state;
+}
+
+function inspectContainedDirectory(value, canonicalRoot) {
   const state = readPathState(value);
-  if (state.lstatError || state.realpathError || state.type !== 'directory') return null;
-  if (!isInsideRoot(canonicalRoot, state.canonicalPath)) return null;
-  return state;
+  if (state.lstatError) {
+    return { state: null, error: { operation: 'lstat', cause: state.lstatError } };
+  }
+  if (state.type !== 'directory') return { state: null, error: null };
+  if (state.realpathError) {
+    return { state: null, error: { operation: 'realpath', cause: state.realpathError } };
+  }
+  if (!isInsideRoot(canonicalRoot, state.canonicalPath)) return { state: null, error: null };
+  return { state, error: null };
 }
 
 function preDeleteSkipReason(candidate) {
@@ -61,15 +71,18 @@ function preDeleteSkipReason(candidate) {
   return null;
 }
 
-function directorySize(dir, canonicalRoot) {
-  const state = containedDirectoryState(dir, canonicalRoot);
+function directorySize(dir, canonicalRoot, onError = () => {}) {
+  const inspection = inspectContainedDirectory(dir, canonicalRoot);
+  if (inspection.error) onError({ path: dir, ...inspection.error });
+  const { state } = inspection;
   if (!state) return 0;
 
   let total = 0;
   let entries;
   try {
     entries = fs.readdirSync(state.canonicalPath, { withFileTypes: true });
-  } catch {
+  } catch (cause) {
+    onError({ path: state.canonicalPath, operation: 'readdir', cause });
     return 0;
   }
   for (const entry of entries) {
@@ -77,9 +90,11 @@ function directorySize(dir, canonicalRoot) {
     try {
       const stat = fs.lstatSync(file);
       if (stat.isSymbolicLink()) continue;
-      if (stat.isDirectory()) total += directorySize(file, canonicalRoot);
+      if (stat.isDirectory()) total += directorySize(file, canonicalRoot, onError);
       else if (stat.isFile()) total += stat.size;
-    } catch {}
+    } catch (cause) {
+      onError({ path: file, operation: 'lstat', cause });
+    }
   }
   return total;
 }
@@ -183,6 +198,7 @@ module.exports = {
   canonicalDirectoryState,
   containedDirectoryState,
   directorySize,
+  inspectContainedDirectory,
   preDeleteSkipReason,
   quarantinedSkipReason,
 };

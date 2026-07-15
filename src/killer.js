@@ -19,7 +19,10 @@ const { killProcess, verifyProcess } = require('./process-kill');
  * @param {object} config — loaded config
  * @returns {{ killed: Array, failed: Array, skipped: Array }}
  */
-function killZombies(zombies, config) {
+function killZombies(zombies, config, dependencies = {}) {
+  const verify = dependencies.verifyProcess || verifyProcess;
+  const kill = dependencies.killProcess || killProcess;
+  const log = dependencies.appendLog || appendLog;
   const timeout = (config.sigterm_timeout || 10) * 1000;
   const limit = config.maxKillBatch || 20;
   const results = { killed: [], failed: [], skipped: [], warning: null };
@@ -41,7 +44,7 @@ function killZombies(zombies, config) {
 
   for (const proc of toKill) {
     // Re-verify before killing
-    const verification = verifyProcess(proc);
+    const verification = verify(proc);
     if (!verification.valid) {
       results.skipped.push({
         ...proc,
@@ -51,12 +54,12 @@ function killZombies(zombies, config) {
     }
 
     // Attempt kill
-    const killResult = killProcess(proc, timeout);
+    const killResult = kill(proc, timeout);
 
     if (killResult.success) {
       results.killed.push(proc);
       // Log for manual recovery
-      appendLog({
+      log({
         action: 'kill',
         pid: proc.pid,
         name: proc.name,
@@ -68,7 +71,7 @@ function killZombies(zombies, config) {
         ...proc,
         error: killResult.error,
       });
-      appendLog({
+      log({
         action: 'kill-failed',
         pid: proc.pid,
         name: proc.name,
@@ -78,7 +81,7 @@ function killZombies(zombies, config) {
   }
 
   // Log summary
-  appendLog({
+  log({
     action: 'cleanup-summary',
     total: zombies.length,
     killed: results.killed.length,

@@ -252,4 +252,5 @@ describe('CLI doctor scheduler contract', () => {
       }
     }
   });
+
 });

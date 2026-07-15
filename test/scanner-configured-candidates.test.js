@@ -5,29 +5,18 @@ const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 const { scan } = require('../src/scanner');
 
-// Helper: build a tree from process list and monkey-patch ProcessTree.build
 function withMockedTree(procs, fn, diagnostics = {}) {
-  const original = ProcessTree.build;
-  ProcessTree.build = () => {
-    const tree = new ProcessTree(
-      procs.map((p) => ({
-        pid: p.pid,
-        ppid: p.ppid,
-        cmd: p.cmd || '',
-        mem: p.mem || 0,
-        age: p.age || 0,
-        startTime: p.startTime || null,
-      }))
-    );
-    tree.warnings = diagnostics.warnings || [];
-    tree.errors = diagnostics.errors || [];
-    return tree;
-  };
-  try {
-    return fn();
-  } finally {
-    ProcessTree.build = original;
-  }
+  const tree = new ProcessTree(procs.map((p) => ({
+    pid: p.pid,
+    ppid: p.ppid,
+    cmd: p.cmd || '',
+    mem: p.mem || 0,
+    age: p.age || 0,
+    startTime: p.startTime || null,
+  })));
+  tree.warnings = diagnostics.warnings || [];
+  tree.errors = diagnostics.errors || [];
+  return fn(tree);
 }
 
 const baseConfig = {
@@ -44,10 +33,10 @@ describe('scan()', () => {
     const procs = [
       { pid: 2150, ppid: 1, cmd: 'node my-agent-worker.js', age: 25 * 60 * 60 * 1000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({
+    const result = withMockedTree(procs, (tree) => scan({
       ...baseConfig,
       customPatterns: ['my-agent-worker'],
-    }));
+    }, { tree }));
 
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'custom:my-agent-worker');
@@ -63,10 +52,10 @@ describe('scan()', () => {
     const procs = [
       { pid: 2149, ppid: 1, cmd: 'node my-agent-worker.js', age: 60000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({
+    const result = withMockedTree(procs, (tree) => scan({
       ...baseConfig,
       customPatterns: ['my-agent-worker'],
-    }));
+    }, { tree }));
 
     assert.equal(result.length, 0);
   });
@@ -77,11 +66,11 @@ describe('scan()', () => {
     ];
 
     for (const maxAge of ['invalid', '0h']) {
-      const result = withMockedTree(procs, () => scan({
+      const result = withMockedTree(procs, (tree) => scan({
         ...baseConfig,
         maxAge,
         customPatterns: ['my-agent-worker'],
-      }));
+      }, { tree }));
       assert.equal(result.length, 0, `maxAge=${maxAge}`);
     }
   });
@@ -91,10 +80,10 @@ describe('scan()', () => {
       { pid: 50, ppid: 1, cmd: 'bash' },
       { pid: 2151, ppid: 50, cmd: 'node my-agent-worker.js', age: 60000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({
+    const result = withMockedTree(procs, (tree) => scan({
       ...baseConfig,
       customPatterns: ['my-agent-worker'],
-    }));
+    }, { tree }));
 
     assert.equal(result.length, 0);
   });
@@ -104,10 +93,10 @@ describe('scan()', () => {
       { pid: 500, ppid: 50, cmd: 'claude' },
       { pid: 2152, ppid: 500, cmd: 'node my-agent-worker.js', age: 60000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({
+    const result = withMockedTree(procs, (tree) => scan({
       ...baseConfig,
       customPatterns: ['my-agent-worker'],
-    }, { sessionPid: 500 }));
+    }, { sessionPid: 500, tree }));
 
     assert.equal(result.length, 0);
   });
@@ -116,7 +105,10 @@ describe('scan()', () => {
     const procs = [
       { pid: 2200, ppid: 1, cmd: 'tsx .claude/tools/server.ts', age: 2 * 60 * 60 * 1000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({ ...baseConfig, maxAge: '1h' }));
+    const result = withMockedTree(
+      procs,
+      (tree) => scan({ ...baseConfig, maxAge: '1h' }, { tree })
+    );
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'tsx');
     assert.match(result[0].reason, /age-exceeded/);
@@ -132,7 +124,10 @@ describe('scan()', () => {
         mem: 2 * 1024 * 1024,
       },
     ];
-    const result = withMockedTree(procs, () => scan({ ...baseConfig, memoryThreshold: '1MB' }));
+    const result = withMockedTree(
+      procs,
+      (tree) => scan({ ...baseConfig, memoryThreshold: '1MB' }, { tree })
+    );
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'node-ai-path');
     assert.match(result[0].reason, /memory-exceeded/);

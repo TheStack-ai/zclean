@@ -77,27 +77,24 @@ describe('workspace cache cleanup safety', () => {
       const scannedCachePath = candidates.find((candidate) => candidate.relativePath === '.turbo').absolutePath;
       let quarantinedPath = null;
       let swapped = false;
-      let recursiveRemovalRequested = false;
 
       const result = cleanCacheTargets(candidates, {
         renameSync(source, destination) {
           fs.renameSync(source, destination);
           if (source === scannedCachePath) quarantinedPath = destination;
         },
-        rmSync(target, options) {
-          recursiveRemovalRequested ||= Boolean(options?.recursive);
+        ftruncateSync(descriptor, length) {
           if (!swapped) {
             swapped = true;
             fs.renameSync(quarantinedPath, movedCachePath);
             fs.renameSync(unrelatedPath, quarantinedPath);
           }
-          fs.rmSync(target, options);
+          fs.ftruncateSync(descriptor, length);
         },
       });
 
       assert.equal(swapped, true);
       assert.equal(fs.readFileSync(path.join(cachePath, 'state.json'), 'utf-8'), 'must-survive');
-      assert.equal(recursiveRemovalRequested, false);
       assert.equal(result.deleted.length, 0);
       assert.equal(result.failed.length, 1);
     } finally {
@@ -195,8 +192,8 @@ describe('workspace cache cleanup safety', () => {
         root: workspace,
         yes: true,
         appendLog() {},
-        rmSync(target) {
-          const error = new Error(`cannot remove ${target}`);
+        ftruncateSync() {
+          const error = new Error('cannot reclaim staged cache file');
           error.code = 'EACCES';
           throw error;
         },

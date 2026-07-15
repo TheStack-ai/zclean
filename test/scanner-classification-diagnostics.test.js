@@ -6,29 +6,18 @@ const { ProcessTree } = require('../src/process-tree');
 const { scan } = require('../src/scanner');
 const { classifyRuntimeCandidate } = require('../src/runtime-classifier');
 
-// Helper: build a tree from process list and monkey-patch ProcessTree.build
 function withMockedTree(procs, fn, diagnostics = {}) {
-  const original = ProcessTree.build;
-  ProcessTree.build = () => {
-    const tree = new ProcessTree(
-      procs.map((p) => ({
-        pid: p.pid,
-        ppid: p.ppid,
-        cmd: p.cmd || '',
-        mem: p.mem || 0,
-        age: p.age || 0,
-        startTime: p.startTime || null,
-      }))
-    );
-    tree.warnings = diagnostics.warnings || [];
-    tree.errors = diagnostics.errors || [];
-    return tree;
-  };
-  try {
-    return fn();
-  } finally {
-    ProcessTree.build = original;
-  }
+  const tree = new ProcessTree(procs.map((p) => ({
+    pid: p.pid,
+    ppid: p.ppid,
+    cmd: p.cmd || '',
+    mem: p.mem || 0,
+    age: p.age || 0,
+    startTime: p.startTime || null,
+  })));
+  tree.warnings = diagnostics.warnings || [];
+  tree.errors = diagnostics.errors || [];
+  return fn(tree);
 }
 
 const baseConfig = {
@@ -45,7 +34,7 @@ describe('scan()', () => {
     const procs = [
       { pid: 3000, ppid: 1, cmd: 'claude --print "do something"', age: 60000, mem: 2048 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'claude-subagent');
     assert.equal(result[0].classification, 'suspected');
@@ -58,7 +47,7 @@ describe('scan()', () => {
       { pid: 50, ppid: 1, cmd: 'bash' },
       { pid: 100, ppid: 50, cmd: 'vim file.txt', age: 1000, mem: 512 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 0);
   });
 
@@ -69,7 +58,7 @@ describe('scan()', () => {
       { pid: 3001, ppid: 501, cmd: 'claude --print "session child"', age: 60000, mem: 2048 },
       { pid: 3002, ppid: 1, cmd: 'claude --print "unrelated orphan"', age: 60000, mem: 2048 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig, { sessionPid: 500 }));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { sessionPid: 500, tree }));
     assert.equal(result.length, 0);
     assert.equal(result.session.pid, 500);
     assert.equal(result.session.matched, 0);
@@ -140,7 +129,7 @@ describe('scan()', () => {
         message: 'Unable to enumerate processes',
       },
     ];
-    const result = withMockedTree([], () => scan(baseConfig), { errors });
+    const result = withMockedTree([], (tree) => scan(baseConfig, { tree }), { errors });
     assert.equal(result.length, 0);
     assert.equal(result.enumerationFailed, true);
     assert.deepEqual(result.errors, errors);

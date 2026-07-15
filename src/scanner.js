@@ -17,7 +17,7 @@ const { classifyRuntimeCandidate } = require('./runtime-classifier');
  * @returns {Array<{pid, name, cmd, ppid, mem, age, startTime, reason, pattern, provider, classification, confidence, evidence, cleanupEligible, blockedReasons}>}
  */
 function scan(config, opts = {}) {
-  const tree = ProcessTree.build();
+  const tree = opts.tree || ProcessTree.build();
   const aiDirRegex = buildAiDirRegex(config.customAiDirs);
   const matchConfiguredPattern = createPatternMatcher(config);
   const zombies = [];

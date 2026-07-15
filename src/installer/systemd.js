@@ -57,6 +57,8 @@ function installSystemd(options = {}) {
   const platform = options.platform || os.platform();
   const servicePath = options.servicePath || SERVICE_PATH;
   const timerPath = options.timerPath || TIMER_PATH;
+  const trustedRoot = options.homedir
+    || (options.servicePath || options.timerPath ? path.dirname(servicePath) : os.homedir());
   const run = options.execFileSync || execFileSync;
   if (platform !== 'linux') {
     return { installed: false, message: 'systemd is Linux only.' };
@@ -77,11 +79,9 @@ function installSystemd(options = {}) {
   const service = generateService(binPath);
   const timer = generateTimer();
   try {
-    fs.mkdirSync(path.dirname(servicePath), { recursive: true });
-    fs.mkdirSync(path.dirname(timerPath), { recursive: true });
-    const serviceWritten = writeFileAtomic(servicePath, service, { mode: 0o644 });
+    const serviceWritten = writeFileAtomic(servicePath, service, { mode: 0o644, trustedRoot });
     if (!serviceWritten.ok) throw serviceWritten.error;
-    const timerWritten = writeFileAtomic(timerPath, timer, { mode: 0o644 });
+    const timerWritten = writeFileAtomic(timerPath, timer, { mode: 0o644, trustedRoot });
     if (!timerWritten.ok) throw timerWritten.error;
   } catch {
     return {

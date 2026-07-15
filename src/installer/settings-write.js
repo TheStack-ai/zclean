@@ -16,7 +16,8 @@ function writeFileAtomic(filePath, contents, options = {}) {
   let tempCreated = false;
 
   try {
-    parentInitial = readParentDirectory(runtimeFs, directory);
+    if (options.trustedRoot) ensureDirectoryPath(runtimeFs, options.trustedRoot, directory);
+    parentInitial = readDirectoryBoundary(runtimeFs, directory, options.trustedRoot);
     const readSource = options.expectedSource !== undefined;
     initial = readDestination(runtimeFs, filePath, readSource);
     if (initial && initial.type !== 'file') {
@@ -36,8 +37,8 @@ function writeFileAtomic(filePath, contents, options = {}) {
     tempCreated = true;
     runtimeFs.chmodSync(tempPath, mode);
 
-    const parentCurrent = readParentDirectory(runtimeFs, directory);
-    if (!sameDestination(parentInitial, parentCurrent)) {
+    const parentCurrent = readDirectoryBoundary(runtimeFs, directory, options.trustedRoot);
+    if (!sameBoundary(parentInitial, parentCurrent)) {
       throw new Error('Atomic write parent directory changed before rename.');
     }
     const current = readDestination(runtimeFs, filePath, readSource);
@@ -53,9 +54,9 @@ function writeFileAtomic(filePath, contents, options = {}) {
     return { ok: true };
   } catch (error) {
     try {
-      const parentCurrent = readParentDirectory(runtimeFs, directory);
+      const parentCurrent = readDirectoryBoundary(runtimeFs, directory, options.trustedRoot);
       if (tempCreated
-        && sameDestination(parentInitial, parentCurrent)
+        && sameBoundary(parentInitial, parentCurrent)
         && runtimeFs.existsSync(tempPath)) {
         runtimeFs.unlinkSync(tempPath);
       }
@@ -64,7 +65,7 @@ function writeFileAtomic(filePath, contents, options = {}) {
   }
 }
 
-function readParentDirectory(runtimeFs, directory) {
+function readDirectory(runtimeFs, directory) {
   const stat = runtimeFs.lstatSync(directory, { bigint: true });
   if (!stat.isDirectory() || stat.isSymbolicLink()) {
     throw new Error('Atomic write parent must be a regular directory.');
@@ -74,6 +75,44 @@ function readParentDirectory(runtimeFs, directory) {
     ino: stat.ino.toString(),
     type: 'directory',
   };
+}
+
+function ensureDirectoryPath(runtimeFs, trustedRoot, directory) {
+  const { root, components } = containedComponents(trustedRoot, directory);
+  readDirectory(runtimeFs, root);
+  let current = root;
+  for (const component of components) {
+    current = path.join(current, component);
+    try {
+      readDirectory(runtimeFs, current);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+      runtimeFs.mkdirSync(current, { mode: 0o700 });
+      readDirectory(runtimeFs, current);
+    }
+  }
+}
+
+function readDirectoryBoundary(runtimeFs, directory, trustedRoot) {
+  if (!trustedRoot) return [readDirectory(runtimeFs, directory)];
+  const { root, components } = containedComponents(trustedRoot, directory);
+  const states = [readDirectory(runtimeFs, root)];
+  let current = root;
+  for (const component of components) {
+    current = path.join(current, component);
+    states.push(readDirectory(runtimeFs, current));
+  }
+  return states;
+}
+
+function containedComponents(trustedRoot, directory) {
+  const root = path.resolve(trustedRoot);
+  const target = path.resolve(directory);
+  const relative = path.relative(root, target);
+  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+    throw new Error('Atomic write destination must stay inside its trusted root.');
+  }
+  return { root, components: relative ? relative.split(path.sep) : [] };
 }
 
 function writeJsonAtomic(filePath, value, options = {}) {
@@ -96,6 +135,13 @@ function readDestination(runtimeFs, filePath, readSource) {
 function sameDestination(left, right) {
   if (left === null || right === null) return left === right;
   return left.type === right.type && left.dev === right.dev && left.ino === right.ino;
+}
+
+function sameBoundary(left, right) {
+  return Array.isArray(left)
+    && Array.isArray(right)
+    && left.length === right.length
+    && left.every((state, index) => sameDestination(state, right[index]));
 }
 
 function createTempName(basename) {

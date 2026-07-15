@@ -203,6 +203,47 @@ describe('CLI history and protect contracts', () => {
     }
   });
 
+  it('does not overwrite a concurrent config update when the safety re-read fails', () => {
+    const fixture = makeFixture();
+    const configFile = path.join(fixture.configDir, 'config.json');
+    const preload = path.join(fixture.root, 'fail-second-config-read.cjs');
+    const concurrentConfig = JSON.stringify({
+      whitelist: ['current-entry'],
+      concurrentValue: 'preserve-me',
+    }, null, 2) + '\n';
+
+    try {
+      fs.writeFileSync(configFile, JSON.stringify({ whitelist: ['stale-entry'] }, null, 2) + '\n');
+      fs.writeFileSync(preload, [
+        "'use strict';",
+        "const fs = require('node:fs');",
+        'const originalRead = fs.readFileSync;',
+        'let descriptorReads = 0;',
+        'fs.readFileSync = function injectedRead(target, ...args) {',
+        "  if (typeof target === 'number' && ++descriptorReads === 2) {",
+        "    fs.writeFileSync(process.env.ZCLEAN_RACE_CONFIG, Buffer.from(process.env.ZCLEAN_RACE_BYTES, 'base64'));",
+        "    const error = new Error('injected config re-read failure');",
+        "    error.code = 'EIO';",
+        '    throw error;',
+        '  }',
+        '  return originalRead.call(this, target, ...args);',
+        '};',
+      ].join('\n'));
+      fixture.env.NODE_OPTIONS = `--require=${preload}`;
+      fixture.env.ZCLEAN_RACE_CONFIG = configFile;
+      fixture.env.ZCLEAN_RACE_BYTES = Buffer.from(concurrentConfig).toString('base64');
+
+      const result = runCli(['protect', 'add', 'new-entry'], { fixture });
+
+      assert.equal(result.status, 1);
+      assert.match(`${result.stdout}\n${result.stderr}`, /could not reload|no changes were written/i);
+      assert.equal(fs.readFileSync(configFile, 'utf8'), concurrentConfig);
+      assert.doesNotMatch(result.stdout, /Protected:/);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('protect add rejects duplicate and empty entries', () => {
     const fixture = makeFixture();
 

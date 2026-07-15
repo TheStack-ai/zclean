@@ -26,7 +26,7 @@ function runCache(options = {}) {
 
   if (yes && report.safe && report._privateCandidates.length > 0) {
     applyCleanupResult(report, cleanCacheTargets(report._privateCandidates, {
-      rmSync: options.rmSync,
+      ftruncateSync: options.ftruncateSync,
     }));
     log({
       action: 'cache-cleanup-summary',

@@ -5,29 +5,20 @@ const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 const { scan } = require('../src/scanner');
 
-// Helper: build a tree from process list and monkey-patch ProcessTree.build
 function withMockedTree(procs, fn, diagnostics = {}) {
-  const original = ProcessTree.build;
-  ProcessTree.build = () => {
-    const tree = new ProcessTree(
-      procs.map((p) => ({
-        pid: p.pid,
-        ppid: p.ppid,
-        cmd: p.cmd || '',
-        mem: p.mem || 0,
-        age: p.age || 0,
-        startTime: p.startTime || null,
-      }))
-    );
-    tree.warnings = diagnostics.warnings || [];
-    tree.errors = diagnostics.errors || [];
-    return tree;
-  };
-  try {
-    return fn();
-  } finally {
-    ProcessTree.build = original;
-  }
+  const tree = new ProcessTree(
+    procs.map((p) => ({
+      pid: p.pid,
+      ppid: p.ppid,
+      cmd: p.cmd || '',
+      mem: p.mem || 0,
+      age: p.age || 0,
+      startTime: p.startTime || null,
+    }))
+  );
+  tree.warnings = diagnostics.warnings || [];
+  tree.errors = diagnostics.errors || [];
+  return fn(tree);
 }
 
 const baseConfig = {
@@ -40,19 +31,12 @@ const baseConfig = {
 };
 
 describe('scan()', () => {
-  it('uses ProcessTree.build() for process data', () => {
-    let buildCalled = false;
-    const original = ProcessTree.build;
-    ProcessTree.build = () => {
-      buildCalled = true;
-      return new ProcessTree([]);
-    };
-    try {
-      scan(baseConfig);
-      assert.ok(buildCalled, 'scan must call ProcessTree.build()');
-    } finally {
-      ProcessTree.build = original;
-    }
+  it('surfaces diagnostics from an injected process snapshot', () => {
+    const error = { code: 'process-enumeration-failed', message: 'provider failed' };
+    const result = withMockedTree([], (tree) => scan(baseConfig, { tree }), { errors: [error] });
+
+    assert.deepEqual(result.errors, [error]);
+    assert.equal(result.enumerationFailed, true);
   });
 
   it('detects orphaned MCP server', () => {
@@ -66,7 +50,7 @@ describe('scan()', () => {
         startTime: '2024-01-01T00:00:00.000Z',
       },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'mcp-server');
     assert.ok(result[0].reason.includes('orphan'));
@@ -83,7 +67,7 @@ describe('scan()', () => {
       { pid: 50, ppid: 1, cmd: 'bash' },
       { pid: 1000, ppid: 50, cmd: 'node /path/to/mcp-server/index.js', age: 7200000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 0);
   });
 
@@ -95,7 +79,7 @@ describe('scan()', () => {
       // This process has PPID=1 (orphaned), so tmux check is irrelevant
       { pid: 1000, ppid: 1, cmd: 'node mcp-server/run.js', age: 7200000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     // Should still be detected as zombie (orphan overrides tmux protection)
     assert.equal(result.length, 1);
     assert.equal(result[0].pid, 1000);
@@ -107,7 +91,7 @@ describe('scan()', () => {
       { pid: 20, ppid: 10, cmd: 'bash' },
       { pid: 1000, ppid: 20, cmd: 'node mcp-server/run.js', age: 7200000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 0);
   });
 
@@ -115,7 +99,7 @@ describe('scan()', () => {
     const procs = [
       { pid: 2000, ppid: 1, cmd: 'tsx watch src/index.ts', age: 100000000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 0);
   });
 
@@ -123,7 +107,7 @@ describe('scan()', () => {
     const procs = [
       { pid: 2000, ppid: 1, cmd: 'tsx .claude/tools/server.ts', age: 100000000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan(baseConfig));
+    const result = withMockedTree(procs, (tree) => scan(baseConfig, { tree }));
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'tsx');
   });
@@ -132,7 +116,10 @@ describe('scan()', () => {
     const procs = [
       { pid: 2100, ppid: 1, cmd: 'tsx .myagent/tools/server.ts', age: 100000000, mem: 1024 },
     ];
-    const result = withMockedTree(procs, () => scan({ ...baseConfig, customAiDirs: ['.myagent'] }));
+    const result = withMockedTree(
+      procs,
+      (tree) => scan({ ...baseConfig, customAiDirs: ['.myagent'] }, { tree })
+    );
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'tsx');
   });

@@ -1,6 +1,5 @@
 'use strict';
 
-const fs = require('fs');
 const {
   saveConfig,
   readLogs,
@@ -125,12 +124,24 @@ function sanitizeHistoryEntry(entry) {
 
 function readWritableConfig(fallback) {
   const configFile = getConfigFile();
-  if (!fs.existsSync(configFile)) return fallback;
+  let source;
   try {
-    const parsed = JSON.parse(readPrivateFile(configFile));
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
-  } catch {}
-  return fallback;
+    source = readPrivateFile(configFile);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return fallback;
+    failProtect(`Config could not be reloaded safely (${error?.code || 'read failed'}); no changes were written.`);
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(source);
+  } catch {
+    failProtect('Config JSON is invalid; no changes were written.');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    failProtect('Config must contain a JSON object; no changes were written.');
+  }
+  return parsed;
 }
 
 function getWhitelist(config) {

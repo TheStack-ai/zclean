@@ -20,11 +20,21 @@ function fakeZombies(n) {
   }));
 }
 
+function runBatch(zombies, config) {
+  return killZombies(zombies, config, {
+    appendLog() {},
+    verifyProcess: (candidate) => ({
+      valid: false,
+      reason: Number.isInteger(candidate.pid) && candidate.pid > 0 ? 'not-running' : 'invalid-pid',
+    }),
+  });
+}
+
 describe('killZombies — maxKillBatch', () => {
   it('limits processing to maxKillBatch when input exceeds limit', () => {
     const zombies = fakeZombies(25);
     const config = { maxKillBatch: 5, sigterm_timeout: 1 };
-    const results = killZombies(zombies, config);
+    const results = runBatch(zombies, config);
 
     // Should only attempt 5 (all will be skipped since PIDs are fake)
     const attempted = results.killed.length + results.failed.length + results.skipped.length;
@@ -34,7 +44,7 @@ describe('killZombies — maxKillBatch', () => {
   it('sets warning when batch limit exceeded', () => {
     const zombies = fakeZombies(25);
     const config = { maxKillBatch: 5, sigterm_timeout: 1 };
-    const results = killZombies(zombies, config);
+    const results = runBatch(zombies, config);
 
     assert.ok(results.warning);
     assert.ok(results.warning.includes('25'));
@@ -44,7 +54,7 @@ describe('killZombies — maxKillBatch', () => {
   it('processes all when count <= limit, no warning', () => {
     const zombies = fakeZombies(3);
     const config = { maxKillBatch: 10, sigterm_timeout: 1 };
-    const results = killZombies(zombies, config);
+    const results = runBatch(zombies, config);
 
     const attempted = results.killed.length + results.failed.length + results.skipped.length;
     assert.equal(attempted, 3);
@@ -54,7 +64,7 @@ describe('killZombies — maxKillBatch', () => {
   it('skips fake PIDs (verifyProcess fails → skipped)', () => {
     const zombies = fakeZombies(2);
     const config = { maxKillBatch: 20, sigterm_timeout: 1 };
-    const results = killZombies(zombies, config);
+    const results = runBatch(zombies, config);
 
     // Fake PIDs won't exist → skipped
     assert.equal(results.skipped.length, 2);
@@ -67,7 +77,7 @@ describe('killZombies — maxKillBatch', () => {
     candidate.cleanupEligible = false;
     candidate.blockedReasons = ['start-time-unverified'];
 
-    const results = killZombies([candidate], { maxKillBatch: 20, sigterm_timeout: 1 });
+    const results = runBatch([candidate], { maxKillBatch: 20, sigterm_timeout: 1 });
 
     assert.equal(results.skipped.length, 1);
     assert.equal(results.skipped[0].skipReason, 'cleanup-ineligible');
@@ -89,7 +99,7 @@ describe('killZombies — maxKillBatch', () => {
       classification: 'suspected',
     };
 
-    const results = killZombies([missing, inconsistent], {
+    const results = runBatch([missing, inconsistent], {
       maxKillBatch: 20,
       sigterm_timeout: 1,
     });
@@ -109,7 +119,7 @@ describe('killZombies — maxKillBatch', () => {
     candidates[1].classification = 'suspected';
     candidates[2].pid = 'not-a-pid';
 
-    const results = killZombies(candidates, { maxKillBatch: 1, sigterm_timeout: 1 });
+    const results = runBatch(candidates, { maxKillBatch: 1, sigterm_timeout: 1 });
 
     assert.deepEqual(
       results.skipped.map((candidate) => candidate.skipReason),

@@ -127,6 +127,38 @@ describe('workspace cache hygiene', () => {
       cleanupFixture(fixture);
     }
   });
+
+  for (const operation of ['lstat', 'realpath']) {
+    it(`fails closed when cache child ${operation} inspection fails`, () => {
+      const fixture = makeFixture();
+      const workspace = createWorkspaceCaches(fixture.root);
+      const cachePath = path.join(workspace, '.turbo');
+      const method = operation === 'lstat' ? 'lstatSync' : 'realpathSync';
+      const original = fs[method];
+
+      try {
+        fs[method] = function injectedInspectionFailure(target, ...args) {
+          if (path.basename(String(target)) === path.basename(cachePath)) {
+            const error = new Error(`${operation} denied`);
+            error.code = 'EACCES';
+            throw error;
+          }
+          return original.call(this, target, ...args);
+        };
+
+        const candidates = scanCacheTargets(workspace);
+        assert.equal(candidates.safe, false);
+        assert.equal(candidates.length > 0, true);
+        assert.ok(candidates.errors.some((error) =>
+          error.code === 'cache-scan-inspection-failed'
+          && error.causeCode === 'EACCES'
+          && error.relativePath === '.turbo'));
+      } finally {
+        fs[method] = original;
+        cleanupFixture(fixture);
+      }
+    });
+  }
 });
 
 function createWorkspaceCaches(root) {

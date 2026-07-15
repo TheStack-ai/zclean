@@ -98,3 +98,36 @@ it('does not remove a directory replacing a staged cache child', () => {
     cleanupFixture(fixture);
   }
 });
+
+it('does not recursively delete a directory swapped in by the removal adapter', () => {
+  const fixture = makeFixture();
+  try {
+    const workspace = path.join(fixture.root, 'workspace');
+    const cachePath = path.join(workspace, '.turbo');
+    const movedCachePath = path.join(fixture.root, 'moved-staged-cache');
+    const unrelatedPath = path.join(fixture.root, 'late-unrelated-data');
+    const unrelatedFile = path.join(unrelatedPath, 'important.bin');
+    writeFile(path.join(cachePath, 'nested', 'state.json'), 'cache-data');
+    writeFile(unrelatedFile, 'must-survive-late-swap');
+    const candidates = scanCacheTargets(workspace);
+    let swapped = false;
+
+    const result = cleanCacheTargets(candidates, {
+      rmSync(target, options) {
+        if (!swapped && options?.recursive) {
+          fs.renameSync(target, movedCachePath);
+          fs.renameSync(unrelatedPath, target);
+          swapped = true;
+        }
+        fs.rmSync(target, options);
+      },
+    });
+
+    assert.equal(swapped, false);
+    assert.equal(fs.readFileSync(unrelatedFile, 'utf8'), 'must-survive-late-swap');
+    assert.equal(result.deleted.length, 1);
+    assert.equal(result.failed.length, 0);
+  } finally {
+    cleanupFixture(fixture);
+  }
+});

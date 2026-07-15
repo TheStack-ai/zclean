@@ -4,20 +4,31 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 
-const isWindows = process.platform === 'win32';
-
 describe('ProcessTree', () => {
   // ── fromPS parsing ──────────────────────────────────────────────
   describe('fromPS', () => {
-    it('builds a tree from live ps output without throwing', { skip: isWindows }, () => {
-      const tree = ProcessTree.fromPS();
-      // Should have at least the current shell and node process
-      assert.ok(tree.byPid.size > 0, 'tree should contain processes');
+    it('builds a tree from injected ps output', () => {
+      const tree = ProcessTree.fromPS({
+        platform: 'darwin',
+        currentPid: 9999,
+        execSync: () => '123 1 2048 01:23:45 Mon Jan 1 12:00:00 2024 node server.js',
+      });
+
+      assert.equal(tree.get(123).cmd, 'node server.js');
     });
 
-    it('excludes its own PID from the tree', { skip: isWindows }, () => {
-      const tree = ProcessTree.fromPS();
-      assert.equal(tree.get(process.pid), null);
+    it('excludes the injected current PID from the tree', () => {
+      const tree = ProcessTree.fromPS({
+        platform: 'linux',
+        currentPid: 123,
+        execSync: () => [
+          '123 1 2048 01:23:45 Mon Jan 1 12:00:00 2024 node self.js',
+          '456 1 1024 00:10:00 Mon Jan 1 12:00:00 2024 node worker.js',
+        ].join('\n'),
+      });
+
+      assert.equal(tree.get(123), null);
+      assert.equal(tree.get(456).cmd, 'node worker.js');
     });
 
     it('surfaces an explicit error when ps returns no process rows', () => {

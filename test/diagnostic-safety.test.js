@@ -135,10 +135,36 @@ describe('public diagnostic safety', () => {
     assert.equal(sanitizeDiagnosticText(input), '--authorization Bearer [redacted]');
   });
 
+  it('redacts complete and truncated backslash-escaped Bearer values', () => {
+    const complete = String.raw`provider returned Bearer \"escaped-secret-7f2d\" after retry`;
+    const truncated = String.raw`provider returned Bearer \"truncated-secret-9a4c`;
+
+    const completeOutput = sanitizeDiagnosticText(complete);
+    const truncatedOutput = sanitizeDiagnosticText(truncated);
+
+    assert.equal(completeOutput.includes('escaped-secret-7f2d'), false);
+    assert.equal(truncatedOutput.includes('truncated-secret-9a4c'), false);
+    assert.equal(completeOutput, 'provider returned Bearer [redacted] after retry');
+    assert.equal(truncatedOutput, 'provider returned Bearer [redacted]');
+  });
+
   it('redacts file URIs with a localhost authority', () => {
     const input = 'failed file://localhost/Users/alice/private/report.json';
 
     assert.equal(sanitizeDiagnosticText(input), 'failed [local-path]');
+  });
+
+  it('redacts file URIs with bracketed IPv6 authorities', () => {
+    const inputs = [
+      'failed file://[::1]/Users/alice/private/report.json',
+      'failed file://[fe80::1%25en0]/Users/alice/private/report.json',
+    ];
+
+    for (const input of inputs) {
+      const output = sanitizeDiagnosticText(input);
+      assert.equal(output.includes('/Users/alice/private/report.json'), false);
+      assert.equal(output, 'failed [local-path]');
+    }
   });
 
   it('keeps ordinary hyphenated prose readable', () => {

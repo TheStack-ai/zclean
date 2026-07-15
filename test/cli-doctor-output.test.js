@@ -2,9 +2,14 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { DEFAULT_CONFIG } = require('../src/config');
 const { runDoctor } = require('../src/doctor');
+const { generatePlist } = require('../src/installer/launchd');
 const { cleanupFixture, makeFixture, parseStdoutJson, runCli } = require('./cli-helpers');
+
+const LOCAL_ZCLEAN_JS = path.resolve(__dirname, '..', 'bin', 'zclean.js');
 
 describe('CLI doctor contract', () => {
   it('labels an old cleanup as informational instead of a scheduler failure', () => {
@@ -152,4 +157,48 @@ describe('CLI doctor contract', () => {
       cleanupFixture(fixture);
     }
   });
+
+  for (const item of [
+    {
+      name: 'macOS launchd',
+      platform: 'darwin',
+      file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
+      content: generatePlist(LOCAL_ZCLEAN_JS),
+    },
+    { name: 'Windows Task Scheduler', platform: 'win32' },
+  ]) {
+    it(`distinguishes ${item.name} query failures from a missing scheduler`, () => {
+      const fixture = makeFixture();
+      let output = '';
+      try {
+        if (item.file) {
+          const file = path.join(fixture.home, ...item.file);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, item.content);
+        }
+        const error = new Error('EACCES: denied at /Users/alice/private/token=secret-value');
+        error.code = 'EACCES';
+
+        runDoctor(DEFAULT_CONFIG, {
+          json: true,
+          scan: () => [],
+          stats: {},
+          runtime: {
+            platform: item.platform,
+            homedir: fixture.home,
+            execSync: () => { throw error; },
+          },
+          write: (chunk) => { output += chunk; },
+        });
+
+        const scheduler = JSON.parse(output).checks.find((check) => check.id === 'scheduler');
+        assert.equal(scheduler.status, 'warning');
+        assert.match(scheduler.message, /inspection failed.*EACCES/i);
+        assert.doesNotMatch(scheduler.message, /not installed|secret-value|\/Users\/alice/);
+        assert.equal(scheduler.details.causeCode, 'EACCES');
+      } finally {
+        cleanupFixture(fixture);
+      }
+    });
+  }
 });

@@ -3,8 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const {
-  containedDirectoryState,
   directorySize,
+  inspectContainedDirectory,
 } = require('./cache-containment');
 const { structuredError, validateCacheRoot } = require('./cache-root');
 
@@ -58,20 +58,25 @@ function walk(rootState, current, depth, found, errors) {
 
   for (const entry of entries) {
     if (entry.isSymbolicLink() || !entry.isDirectory()) continue;
+    if (isSkippedDirectory(entry.name)) continue;
 
     const absolutePath = path.join(current, entry.name);
-    const state = containedDirectoryState(absolutePath, rootState.canonicalPath);
+    const inspection = inspectContainedDirectory(absolutePath, rootState.canonicalPath);
+    if (inspection.error) {
+      errors.push(scanInspectionError(rootState.canonicalPath, absolutePath, inspection.error));
+      continue;
+    }
+    const { state } = inspection;
     if (!state) continue;
 
     const relativePath = toPosix(path.relative(rootState.canonicalPath, state.canonicalPath));
     if (isCachePath(relativePath, entry.name)) {
-      found.push(toPrivateCandidate({ absolutePath, relativePath, rootState, state }));
+      found.push(toPrivateCandidate({ absolutePath, relativePath, rootState, state, errors }));
       continue;
     }
 
-    if (SKIP_DIR_NAMES.has(entry.name)) continue;
     if (entry.name === 'node_modules') {
-      addNodeModulesCache(absolutePath, rootState, found);
+      addNodeModulesCache(absolutePath, rootState, found, errors);
       continue;
     }
 
@@ -79,26 +84,41 @@ function walk(rootState, current, depth, found, errors) {
   }
 }
 
-function addNodeModulesCache(nodeModulesPath, rootState, found) {
+function isSkippedDirectory(name) {
+  return SKIP_DIR_NAMES.has(name)
+    || name.startsWith('.zclean-quarantine-')
+    || name.startsWith('.zclean-delete-');
+}
+
+function addNodeModulesCache(nodeModulesPath, rootState, found, errors) {
   const absolutePath = path.join(nodeModulesPath, '.cache');
-  if (!isPlainDirectory(absolutePath)) return;
-  const state = containedDirectoryState(absolutePath, rootState.canonicalPath);
+  const inspection = inspectContainedDirectory(absolutePath, rootState.canonicalPath);
+  if (inspection.error) {
+    if (inspection.error.cause?.code !== 'ENOENT') {
+      errors.push(scanInspectionError(rootState.canonicalPath, absolutePath, inspection.error));
+    }
+    return;
+  }
+  const { state } = inspection;
   if (!state) return;
   found.push(toPrivateCandidate({
     absolutePath,
     relativePath: toPosix(path.relative(rootState.canonicalPath, state.canonicalPath)),
     rootState,
     state,
+    errors,
   }));
 }
 
-function toPrivateCandidate({ absolutePath, relativePath, rootState, state }) {
+function toPrivateCandidate({ absolutePath, relativePath, rootState, state, errors }) {
   return {
     id: cacheId(relativePath, path.basename(relativePath)),
     absolutePath,
     relativePath,
     type: state.type,
-    bytes: directorySize(absolutePath, rootState.canonicalPath),
+    bytes: directorySize(absolutePath, rootState.canonicalPath, (failure) => {
+      errors.push(scanInspectionError(rootState.canonicalPath, failure.path, failure));
+    }),
     canonicalRoot: rootState.canonicalPath,
     canonicalPath: state.canonicalPath,
     rootIdentity: rootState.identity,
@@ -140,13 +160,15 @@ function scanReadError(root, current, cause) {
   };
 }
 
-function isPlainDirectory(value) {
-  try {
-    const stat = fs.lstatSync(value);
-    return stat.isDirectory() && !stat.isSymbolicLink();
-  } catch {
-    return false;
-  }
+function scanInspectionError(root, current, failure) {
+  return {
+    ...structuredError(
+      'cache-scan-inspection-failed',
+      `A workspace cache path could not be inspected safely (${failure.operation}).`,
+      failure.cause
+    ),
+    relativePath: toPosix(path.relative(root, current)) || '.',
+  };
 }
 
 function toPosix(value) {

@@ -10,13 +10,16 @@ function cleanCacheTargets(candidates, options = {}) {
   const failed = [];
   const skipped = [];
   const runtime = {
+    close: options.closeSync || fs.closeSync,
     existsSync: options.existsSync || fs.existsSync,
+    inspectDescriptor: options.fstatSync || fs.fstatSync,
     inspect: options.lstatSync || fs.lstatSync,
     mkdirTemp: options.mkdtempSync || fs.mkdtempSync,
+    open: options.openSync || fs.openSync,
     readDirectory: options.readdirSync || fs.readdirSync,
     rename: options.renameSync || fs.renameSync,
-    remove: options.rmSync || fs.rmSync,
     removeDirectory: options.rmdirSync || fs.rmdirSync,
+    truncate: options.ftruncateSync || fs.ftruncateSync,
   };
   const ordered = [...candidates]
     .sort((left, right) => String(right.relativePath || '').length - String(left.relativePath || '').length);
@@ -111,21 +114,52 @@ function stageAndRemoveEntry(context, target) {
   runtime.rename(target, stagedPath);
   assertQuarantineUnchanged(context);
   let initial;
+  let descriptor = null;
   try {
     initial = runtime.inspect(stagedPath);
     assertQuarantineUnchanged(context);
     assertStagedUnchanged(runtime, stagedPath, initial);
-    runtime.remove(stagedPath, {
-      force: true,
-      recursive: initial.isDirectory() && !initial.isSymbolicLink(),
-    });
+    if (initial.isDirectory() && !initial.isSymbolicLink()) {
+      removeStagedDirectory(context, stagedPath, initial);
+    } else if (initial.isFile() && !initial.isSymbolicLink()) {
+      descriptor = runtime.open(stagedPath, fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW || 0));
+      const opened = runtime.inspectDescriptor(descriptor, { bigint: true });
+      if (!sameIdentity(initial, opened)) {
+        throw new Error('Staged cache file identity changed while it was being opened.');
+      }
+      runtime.truncate(descriptor, 0);
+      const truncated = runtime.inspectDescriptor(descriptor, { bigint: true });
+      if (!sameIdentity(initial, truncated)) {
+        throw new Error('Staged cache file identity changed while it was being reclaimed.');
+      }
+      runtime.close(descriptor);
+      descriptor = null;
+    }
   } catch (error) {
+    if (descriptor !== null) {
+      runtime.close(descriptor);
+      descriptor = null;
+    }
     const recoveryError = restoreStagedEntry(context, target, stagedPath, initial);
     if (recoveryError) error.recoveryError = recoveryError;
     throw error;
   } finally {
+    if (descriptor !== null) runtime.close(descriptor);
     removeEmptyDirectory(runtime, stagingDirectory);
   }
+}
+
+function removeStagedDirectory(context, stagedPath, initial) {
+  const { runtime } = context;
+  assertStagedUnchanged(runtime, stagedPath, initial);
+  const entries = runtime.readDirectory(stagedPath, { withFileTypes: true });
+  assertStagedUnchanged(runtime, stagedPath, initial);
+  for (const entry of entries) {
+    assertStagedUnchanged(runtime, stagedPath, initial);
+    stageAndRemoveEntry(context, path.join(stagedPath, entry.name));
+    assertStagedUnchanged(runtime, stagedPath, initial);
+  }
+  runtime.removeDirectory(stagedPath);
 }
 
 function restoreStagedEntry(context, target, stagedPath, initial) {
@@ -164,8 +198,8 @@ function assertStagedUnchanged(runtime, stagedPath, initial) {
 }
 
 function sameIdentity(left, right) {
-  return left.dev === right.dev
-    && left.ino === right.ino
+  return String(left.dev) === String(right.dev)
+    && String(left.ino) === String(right.ino)
     && left.isDirectory() === right.isDirectory()
     && left.isSymbolicLink() === right.isSymbolicLink();
 }

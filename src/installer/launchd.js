@@ -106,16 +106,11 @@ function installLaunchd(options = {}) {
 
   const homeDir = options.homedir || os.homedir();
   const plistPath = options.plistPath || path.join(homeDir, 'Library', 'LaunchAgents', `${PLIST_NAME}.plist`);
-  const plistDir = path.dirname(plistPath);
   const uid = options.uid ?? process.getuid?.();
   const run = options.execFileSync || execFileSync;
   const binPath = options.binPath || resolveZcleanBin();
   if (!binPath) {
     return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
-  }
-
-  if (!fs.existsSync(plistDir)) {
-    fs.mkdirSync(plistDir, { recursive: true });
   }
 
   if (!stopExistingLaunchd(run, uid, plistPath)) {
@@ -127,7 +122,7 @@ function installLaunchd(options = {}) {
   }
 
   const plist = generatePlist(binPath, { homedir: homeDir });
-  const written = writeFileAtomic(plistPath, plist, { mode: 0o644 });
+  const written = writeFileAtomic(plistPath, plist, { mode: 0o644, trustedRoot: homeDir });
   if (!written.ok) {
     return {
       installed: false,

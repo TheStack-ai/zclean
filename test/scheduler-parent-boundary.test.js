@@ -67,6 +67,62 @@ describe('scheduler parent directory boundary', () => {
       cleanupFixture(fixture);
     }
   });
+
+  it('does not write launchd data through a symlink above LaunchAgents', (t) => {
+    const fixture = makeFixture();
+    try {
+      const outside = path.join(fixture.root, 'outside-library');
+      const linkedLibrary = path.join(fixture.home, 'Library');
+      const outsidePlist = path.join(outside, 'LaunchAgents', 'com.zclean.hourly.plist');
+      fs.mkdirSync(path.dirname(outsidePlist), { recursive: true });
+      fs.writeFileSync(outsidePlist, 'launchd-ancestor-sentinel');
+      if (!createDirectorySymlink(t, outside, linkedLibrary)) return;
+
+      const result = launchd.installLaunchd({
+        platform: 'darwin',
+        homedir: fixture.home,
+        plistPath: path.join(linkedLibrary, 'LaunchAgents', 'com.zclean.hourly.plist'),
+        uid: 501,
+        binPath: '/usr/local/bin/zclean',
+        execFileSync: () => '',
+      });
+
+      assert.equal(result.installed, false);
+      assert.equal(fs.readFileSync(outsidePlist, 'utf8'), 'launchd-ancestor-sentinel');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('does not write systemd data through a symlink above the unit directory', (t) => {
+    const fixture = makeFixture();
+    try {
+      const outside = path.join(fixture.root, 'outside-config');
+      const linkedConfig = path.join(fixture.home, '.config');
+      const outsideUnitDir = path.join(outside, 'systemd', 'user');
+      const outsideService = path.join(outsideUnitDir, 'zclean.service');
+      const outsideTimer = path.join(outsideUnitDir, 'zclean.timer');
+      fs.mkdirSync(outsideUnitDir, { recursive: true });
+      fs.writeFileSync(outsideService, 'service-ancestor-sentinel');
+      fs.writeFileSync(outsideTimer, 'timer-ancestor-sentinel');
+      if (!createDirectorySymlink(t, outside, linkedConfig)) return;
+
+      const result = systemd.installSystemd({
+        platform: 'linux',
+        homedir: fixture.home,
+        servicePath: path.join(linkedConfig, 'systemd', 'user', 'zclean.service'),
+        timerPath: path.join(linkedConfig, 'systemd', 'user', 'zclean.timer'),
+        binPath: '/usr/local/bin/zclean',
+        execFileSync: () => '',
+      });
+
+      assert.equal(result.installed, false);
+      assert.equal(fs.readFileSync(outsideService, 'utf8'), 'service-ancestor-sentinel');
+      assert.equal(fs.readFileSync(outsideTimer, 'utf8'), 'timer-ancestor-sentinel');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
 });
 
 function createDirectorySymlink(t, target, destination) {

@@ -2,14 +2,12 @@
 
 const fs = require('fs');
 const os = require('os');
-const path = require('path');
 const { execSync } = require('child_process');
 const { scan, hasScanErrors } = require('../scanner');
 const { getConfigFile, getCumulativeStats } = require('../config');
 const { inspectLegacyHook } = require('../installer/hook');
 const { sanitizeDiagnostics, sanitizeDiagnosticText } = require('../process-diagnostic');
-const { systemdShowCommand } = require('../systemd-contract');
-const { inspectSchedulerDefinition } = require('./scheduler-definition');
+const { checkScheduler } = require('./scheduler-check');
 
 function buildDoctorReport(config, options = {}) {
   const runtime = buildRuntime(options);
@@ -125,133 +123,6 @@ function checkHook(homeDir) {
     };
   }
   return { id: 'hook', status: 'ok', message: 'provider hooks are optional and not required' };
-}
-
-function checkScheduler(runtime) {
-  if (runtime.platform === 'darwin') return checkLaunchd(runtime);
-  if (runtime.platform === 'linux') return checkSystemd(runtime);
-  if (runtime.platform === 'win32') return checkTaskScheduler(runtime);
-  return {
-    id: 'scheduler',
-    status: 'warning',
-    message: `unsupported platform (${runtime.platform})`,
-    details: { platform: runtime.platform },
-  };
-}
-
-function checkLaunchd(runtime) {
-  const plistPath = path.join(runtime.homedir, 'Library', 'LaunchAgents', 'com.zclean.hourly.plist');
-  if (!fs.existsSync(plistPath)) {
-    return {
-      id: 'scheduler',
-      status: 'warning',
-      message: 'not installed - run `zclean init`',
-      details: { platform: 'darwin' },
-    };
-  }
-
-  const definition = inspectSchedulerDefinition(readSchedulerFile(plistPath), 'darwin');
-  if (!definition.safe) return schedulerDefinitionWarning('darwin', definition.reason);
-
-  try {
-    const out = runtime.execSync('launchctl list com.zclean.hourly 2>&1', { encoding: 'utf-8', timeout: 5000 });
-    if (!out.includes('Could not find')) {
-      return {
-        id: 'scheduler',
-        status: 'ok',
-        message: 'launchd agent loaded',
-        details: { platform: 'darwin' },
-      };
-    }
-  } catch {}
-
-  return {
-    id: 'scheduler',
-    status: 'warning',
-    message: 'plist exists but not loaded - run `zclean init`',
-    details: { platform: 'darwin' },
-  };
-}
-
-function checkSystemd(runtime) {
-  const timerPath = path.join(runtime.homedir, '.config', 'systemd', 'user', 'zclean.timer');
-  const servicePath = path.join(runtime.homedir, '.config', 'systemd', 'user', 'zclean.service');
-  if (!fs.existsSync(timerPath) || !fs.existsSync(servicePath)) {
-    return {
-      id: 'scheduler',
-      status: 'warning',
-      message: 'not installed - run `zclean init`',
-      details: { platform: 'linux' },
-    };
-  }
-
-  const definition = inspectSchedulerDefinition(readSchedulerFile(servicePath), 'linux');
-  if (!definition.safe) return schedulerDefinitionWarning('linux', definition.reason);
-  let loadedDefinition;
-  let timerState;
-  try {
-    loadedDefinition = runtime.execSync(
-      systemdShowCommand('zclean.service'),
-      { encoding: 'utf-8', timeout: 5000 }
-    );
-    timerState = runtime.execSync(
-      'systemctl --user is-active zclean.timer',
-      { encoding: 'utf-8', timeout: 5000 }
-    );
-  } catch {
-    return schedulerDefinitionWarning('linux', 'loaded timer state could not be verified');
-  }
-  const loaded = inspectSchedulerDefinition(loadedDefinition, 'linux');
-  if (!loaded.safe) return schedulerDefinitionWarning('linux', loaded.reason);
-  if (String(timerState).trim() !== 'active') {
-    return schedulerDefinitionWarning('linux', 'report-only timer is not active');
-  }
-  return {
-    id: 'scheduler',
-    status: 'ok',
-    message: 'systemd report-only timer installed',
-    details: { platform: 'linux' },
-  };
-}
-
-function checkTaskScheduler(runtime) {
-  try {
-    const output = runtime.execSync(
-      'schtasks /query /TN "zclean-hourly" /XML',
-      { encoding: 'utf-8', timeout: 5000 }
-    );
-    const definition = inspectSchedulerDefinition(output, 'win32');
-    if (!definition.safe) return schedulerDefinitionWarning('win32', definition.reason);
-    return {
-      id: 'scheduler',
-      status: 'ok',
-      message: 'Task Scheduler report-only task installed',
-      details: { platform: 'win32' },
-    };
-  } catch {}
-  return {
-    id: 'scheduler',
-    status: 'warning',
-    message: 'not installed - run `zclean init`',
-    details: { platform: 'win32' },
-  };
-}
-
-function readSchedulerFile(file) {
-  try {
-    return fs.readFileSync(file, 'utf8');
-  } catch {
-    return null;
-  }
-}
-
-function schedulerDefinitionWarning(platform, reason) {
-  return {
-    id: 'scheduler',
-    status: 'warning',
-    message: `${reason} - run \`zclean init\` to install the report-only scheduler`,
-    details: { platform },
-  };
 }
 
 function checkLastRun(stats, generatedAt) {
