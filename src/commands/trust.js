@@ -71,7 +71,7 @@ function protectList(config, flags) {
     return;
   }
   whitelist.forEach((entry, index) => {
-    console.log(`  ${String(index + 1).padStart(2)}. ${entry}`);
+    console.log(`  ${String(index + 1).padStart(2)}. ${sanitizeDiagnosticText(entry)}`);
   });
   console.log();
 }
@@ -83,11 +83,11 @@ function protectAdd(config, flags, positional) {
   const writableConfig = readWritableConfig(config);
   const whitelist = getWhitelist(writableConfig);
   if (whitelist.includes(entry)) {
-    failProtect(`Entry is already protected: ${entry}`);
+    failProtect(`Entry is already protected: ${sanitizeDiagnosticText(entry)}`);
   }
 
   saveConfig({ ...writableConfig, whitelist: [...whitelist, entry] });
-  console.log(c('green', `  Protected: ${entry}`));
+  console.log(c('green', `  Protected: ${sanitizeDiagnosticText(entry)}`));
   if (flags.reason) {
     console.log(c('gray', '  Note: --reason is accepted for workflow notes but is not stored in config yet.'));
   }
@@ -107,11 +107,11 @@ function protectRemove(config, flags, positional) {
     entry = normalizeProtectEntry(positional.slice(2).join(' '));
     if (!entry) failProtect('Protection entry or --index=N is required.');
     index = whitelist.indexOf(entry);
-    if (index === -1) failProtect(`Entry is not protected: ${entry}`);
+    if (index === -1) failProtect(`Entry is not protected: ${sanitizeDiagnosticText(entry)}`);
   }
 
   saveConfig({ ...writableConfig, whitelist: whitelist.filter((_, current) => current !== index) });
-  console.log(c('green', `  Removed protected entry: ${entry}`));
+  console.log(c('green', `  Removed protected entry: ${sanitizeDiagnosticText(entry)}`));
 }
 
 function sanitizeHistoryEntry(entry) {

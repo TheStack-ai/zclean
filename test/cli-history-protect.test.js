@@ -180,6 +180,29 @@ describe('CLI history and protect contracts', () => {
     }
   });
 
+  it('redacts credential values from every protect text response', () => {
+    const fixture = makeFixture();
+    const entry = 'OPENAI_API_KEY=protect-output-secret';
+
+    try {
+      const results = [
+        runCli(['protect', 'add', entry], { fixture }),
+        runCli(['protect', 'add', entry], { fixture }),
+        runCli(['protect', 'list'], { fixture }),
+        runCli(['protect', 'remove', entry], { fixture }),
+      ];
+
+      assert.deepEqual(results.map((result) => result.status), [0, 1, 0, 0]);
+      for (const result of results) {
+        const output = `${result.stdout}\n${result.stderr}`;
+        assert.equal(output.includes('protect-output-secret'), false);
+        assert.match(output, /\[redacted\]/);
+      }
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('protect add only persists the whitelist change in a minimal existing config', () => {
     const fixture = makeFixture();
 
