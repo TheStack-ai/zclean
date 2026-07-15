@@ -7,17 +7,34 @@ function inspectSchedulerDefinition(value, platform) {
   if (/(?:^|[\s>\"])--yes(?:[\s<\"]|$)/i.test(value)) {
     return { safe: false, reason: 'unsafe automatic cleanup command found' };
   }
-  const args = extractSchedulerArgs(value, platform);
+  const normalized = platform === 'darwin' ? normalizeLaunchdKeys(value) : value;
+  if (!normalized) {
+    return { safe: false, reason: 'launchd keys could not be verified' };
+  }
+  const args = extractSchedulerArgs(normalized, platform);
   if (!args || args.length !== 3 || args[1] !== 'audit' || args[2] !== '--json') {
     return { safe: false, reason: 'command is not the report-only audit contract' };
   }
-  if (platform === 'darwin' && !launchdProgramMatches(value, args[0])) {
+  if (platform === 'darwin' && !launchdProgramMatches(normalized, args[0])) {
     return { safe: false, reason: 'launchd Program does not match the scheduled executable' };
   }
   if (!isZcleanExecutable(args[0])) {
     return { safe: false, reason: 'scheduled executable is not zclean' };
   }
   return { safe: true };
+}
+
+function normalizeLaunchdKeys(value) {
+  let unresolved = false;
+  const normalized = value.replace(
+    /<key\b[^>]*>([\s\S]*?)<\/key>/gi,
+    (_match, key) => {
+      const decoded = decodeXml(key);
+      if (/&(?:#(?:x[0-9a-f]+|\d+)|[a-z_:][\w:.-]*);/i.test(decoded)) unresolved = true;
+      return `<key>${decoded}</key>`;
+    }
+  );
+  return unresolved ? null : normalized;
 }
 
 function launchdProgramMatches(value, executable) {
@@ -84,11 +101,24 @@ function isZcleanExecutable(value) {
 
 function decodeXml(value) {
   return value
+    .replace(/&#x([0-9a-f]+);/gi, (match, code) => decodeCodePoint(match, code, 16))
+    .replace(/&#([0-9]+);/g, (match, code) => decodeCodePoint(match, code, 10))
     .replace(/&quot;/g, '"')
     .replace(/&apos;/g, "'")
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
+}
+
+function decodeCodePoint(match, value, radix) {
+  const codePoint = Number.parseInt(value, radix);
+  const valid = codePoint === 0x9 || codePoint === 0xa || codePoint === 0xd
+    || (codePoint >= 0x20 && codePoint <= 0xd7ff)
+    || (codePoint >= 0xe000 && codePoint <= 0xfffd)
+    || (codePoint >= 0x10000 && codePoint <= 0x10ffff);
+  return Number.isInteger(codePoint) && valid
+    ? String.fromCodePoint(codePoint)
+    : match;
 }
 
 module.exports = { inspectSchedulerDefinition };
