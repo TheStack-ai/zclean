@@ -64,7 +64,7 @@ describe('legacy Claude hook cleanup', () => {
     assert.equal(fs.readFileSync(fixture.settingsPath, 'utf8'), original);
   });
 
-  it('matches only absolute legacy commands, including quoted paths with spaces', (t) => {
+  it('removes only exact generated legacy wrappers and preserves user-authored variants', (t) => {
     const fixture = createFixture(t);
     const retainedNestedHooks = [
       { type: 'command', command: 'echo zclean' },
@@ -127,8 +127,9 @@ describe('legacy Claude hook cleanup', () => {
           {
             matcher: '',
             note: 'preserve wrapper metadata',
-            hooks: retainedNestedHooks,
+            hooks: [{ type: 'command', command: LEGACY_COMMAND }, ...retainedNestedHooks],
           },
+          { type: 'command', command: '/opt/homebrew/bin/zclean --yes --session-pid=$PPID' },
           ...retainedStopEntries,
         ],
       },

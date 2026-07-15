@@ -120,6 +120,68 @@ describe('ProcessTree', () => {
       assert.equal(tree.warnings[0].provider, 'wmic');
     });
 
+    it('keeps commandless CIM rows so a live parent is not mistaken for a missing parent', () => {
+      const tree = ProcessTree.build({
+        platform: 'win32',
+        currentPid: 9999,
+        execSync(command) {
+          if (command === 'where wmic') throw new Error('wmic not found');
+          if (command.includes('Get-CimInstance')) {
+            return JSON.stringify([
+              {
+                ProcessId: 4321,
+                ParentProcessId: 4,
+                CommandLine: null,
+                WorkingSetSize: 2048,
+                CreationDate: '2024-01-01T00:00:00.000Z',
+              },
+              {
+                ProcessId: 1234,
+                ParentProcessId: 4321,
+                CommandLine: 'node C:\\agent\\worker.js',
+                WorkingSetSize: 4096,
+                CreationDate: '2024-01-01T00:05:00.000Z',
+              },
+            ]);
+          }
+          throw new Error(`unexpected command: ${command}`);
+        },
+      });
+
+      assert.ok(tree.get(4321), 'parent row must remain in the topology');
+      assert.equal(tree.get(4321).cmd, '');
+      assert.equal(tree.isOrphan(1234).isOrphan, false);
+      assert.equal(tree.errors.length, 0);
+    });
+
+    it('surfaces partial CIM parsing instead of treating a child with a missing row as safe', () => {
+      const tree = ProcessTree.build({
+        platform: 'win32',
+        currentPid: 9999,
+        execSync(command) {
+          if (command === 'where wmic') throw new Error('wmic not found');
+          if (command.includes('Get-CimInstance')) {
+            return JSON.stringify([
+              {
+                ProcessId: 'not-a-pid',
+                ParentProcessId: 4,
+                CommandLine: 'parent.exe',
+              },
+              {
+                ProcessId: 1234,
+                ParentProcessId: 4321,
+                CommandLine: 'node C:\\agent\\worker.js',
+              },
+            ]);
+          }
+          throw new Error(`unexpected command: ${command}`);
+        },
+      });
+
+      assert.equal(tree.get(1234).ppid, 4321);
+      assert.ok(tree.errors.some((error) => error.code === 'process-enumeration-provider-partial'));
+    });
+
     it('surfaces an explicit error when all Windows providers fail', () => {
       const tree = ProcessTree.build({
         platform: 'win32',

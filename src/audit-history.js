@@ -1,5 +1,7 @@
 'use strict';
 
+const { sanitizeDiagnosticText } = require('./process-diagnostic');
+
 function buildHistory(logs, stats) {
   const lastCleanup = logs.filter((entry) => entry.action === 'cleanup-summary').pop() || null;
   return {
@@ -27,9 +29,13 @@ function findRecentFailures(logs) {
       timestamp: entry.timestamp || null,
       action: entry.action,
       pid: entry.pid || null,
-      message: entry.message || entry.error || null,
+      message: sanitizeHistoryMessage(entry.message || entry.error),
       failed: entry.failed || 0,
     }));
+}
+
+function sanitizeHistoryMessage(value) {
+  return value ? sanitizeDiagnosticText(value) : null;
 }
 
 function summarizeLogs(logs) {

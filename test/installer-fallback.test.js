@@ -37,6 +37,41 @@ describe('installer persistent commands', () => {
     assert.doesNotMatch(plist, /npx/);
   });
 
+  it('escapes launchd paths and always quotes the Windows task executable', () => {
+    const plist = launchd.generatePlist('/tmp/zclean&tool', { homedir: '/tmp/home&unsafe' });
+    assert.match(plist, /zclean&amp;tool/);
+    assert.match(plist, /home&amp;unsafe/);
+    assert.doesNotMatch(plist, /<string>\/tmp\/home&unsafe/);
+
+    const task = taskScheduler.formatTaskRunCommand('C:\\Users\\dev\\bin&calc\\zclean.cmd');
+    assert.equal(task, '"C:\\Users\\dev\\bin&calc\\zclean.cmd" audit --json');
+  });
+
+  it('does not overwrite the plist while an old launchd job cannot be stopped', () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-launchd-migration-'));
+    const plistPath = path.join(root, 'com.zclean.hourly.plist');
+    const oldPlist = '<plist><string>--yes</string></plist>';
+    fs.writeFileSync(plistPath, oldPlist);
+
+    const result = launchd.installLaunchd({
+      platform: 'darwin',
+      homedir: root,
+      plistPath,
+      uid: 501,
+      binPath: '/usr/local/bin/zclean',
+      execFileSync(command, args) {
+        assert.equal(command, 'launchctl');
+        if (args[0] === 'print') return 'ProgramArguments = { --yes }';
+        throw new Error('bootout failed');
+      },
+    });
+
+    assert.equal(result.active, false);
+    assert.match(result.message, /could not stop|still loaded|preserved/i);
+    assert.equal(fs.readFileSync(plistPath, 'utf8'), oldPlist);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
   it('Windows Task Scheduler quotes local paths and runs report-only audits', () => {
     const args = taskScheduler.buildCreateTaskArgs('C:\\Program Files\\nodejs\\zclean.cmd');
     assert.deepEqual(args.slice(0, 5), ['/create', '/TN', taskScheduler.TASK_NAME, '/SC', 'HOURLY']);

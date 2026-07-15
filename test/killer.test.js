@@ -16,6 +16,8 @@ function fakeZombies(n) {
     startTime: null,
     reason: 'test',
     pattern: 'test-zombie',
+    cleanupEligible: true,
+    classification: 'confirmed-stale',
   }));
 }
 
@@ -80,6 +82,7 @@ describe('killZombies — maxKillBatch', () => {
       pid: 'not-a-pid',
       classification: 'confirmed-stale',
     };
+    delete missing.cleanupEligible;
     const inconsistent = {
       ...fakeZombies(1)[0],
       pid: 'not-a-pid',
@@ -98,6 +101,22 @@ describe('killZombies — maxKillBatch', () => {
     );
     assert.equal(results.killed.length, 0);
     assert.equal(results.failed.length, 0);
+  });
+
+  it('applies the batch limit after filtering ineligible candidates', () => {
+    const candidates = fakeZombies(3);
+    candidates[0].cleanupEligible = false;
+    candidates[0].blockedReasons = ['active-session-descendant'];
+    candidates[1].classification = 'suspected';
+    candidates[2].pid = 'not-a-pid';
+
+    const results = killZombies(candidates, { maxKillBatch: 1, sigterm_timeout: 1 });
+
+    assert.deepEqual(
+      results.skipped.map((candidate) => candidate.skipReason),
+      ['cleanup-ineligible', 'cleanup-ineligible', 'invalid-pid']
+    );
+    assert.equal(results.warning, null);
   });
 });
 
@@ -222,6 +241,61 @@ describe('Unix kill verification', () => {
 
     assert.deepEqual(result, { valid: true, reason: 'verified' });
     assert.ok(calls.includes('LC_ALL=C ps -o lstart= -p 3210'));
+  });
+
+  it('rechecks identity immediately before the first signal', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node /tmp/worker.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
+    let currentCmd = proc.cmd;
+    const signals = [];
+    const runtime = {
+      platform: 'darwin',
+      execSync(command) {
+        if (command.includes('ps -o command=')) return currentCmd;
+        if (command.includes('ps -o lstart=')) return proc.startTime;
+        throw new Error(`unexpected command: ${command}`);
+      },
+      kill(pid, signal) {
+        signals.push([pid, signal]);
+      },
+    };
+
+    assert.deepEqual(verifyProcess(proc, runtime), { valid: true, reason: 'verified' });
+    currentCmd = 'replacement-process';
+    const result = killProcess(proc, 0, runtime);
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /identity/i);
+    assert.deepEqual(signals, []);
+  });
+
+  it('rechecks identity before SIGKILL escalation', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node /tmp/worker.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
+    let currentCmd = proc.cmd;
+    const signals = [];
+    const result = killProcess(proc, 0, {
+      platform: 'linux',
+      execSync(command) {
+        if (command.includes('ps -o command=')) return currentCmd;
+        if (command.includes('ps -o lstart=')) return proc.startTime;
+        throw new Error(`unexpected command: ${command}`);
+      },
+      kill(pid, signal) {
+        signals.push([pid, signal]);
+        if (signal === 'SIGTERM') currentCmd = 'replacement-process';
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /identity/i);
+    assert.deepEqual(signals, [[3210, 'SIGTERM']]);
   });
 });
 
@@ -398,5 +472,39 @@ describe('Windows kill verification', () => {
     assert.deepEqual(result, { success: true, method: 'taskkill' });
     assert.ok(calls.some((command) => command.includes('Get-CimInstance')));
     assert.ok(!calls.some((command) => command.includes('wmic')));
+  });
+
+  it('rechecks Windows identity before force-kill escalation', () => {
+    const proc = {
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
+    let currentCmd = proc.cmd;
+    const calls = [];
+    const result = killProcess(proc, 0, {
+      platform: 'win32',
+      now: () => 1000,
+      execSync(command) {
+        calls.push(command);
+        if (command.includes('Get-CimInstance')) {
+          return JSON.stringify({
+            ProcessId: 3210,
+            CommandLine: currentCmd,
+            CreationDate: proc.startTime,
+          });
+        }
+        if (command === 'taskkill /PID 3210') {
+          currentCmd = 'replacement-process';
+          return '';
+        }
+        if (command === 'taskkill /F /PID 3210') return '';
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /identity/i);
+    assert.equal(calls.includes('taskkill /F /PID 3210'), false);
   });
 });

@@ -8,6 +8,7 @@ const { scan, hasScanErrors } = require('../scanner');
 const { getConfigFile, getCumulativeStats } = require('../config');
 const { inspectLegacyHook } = require('../installer/hook');
 const { sanitizeDiagnostics, sanitizeDiagnosticText } = require('../process-diagnostic');
+const { inspectSchedulerDefinition } = require('./scheduler-definition');
 
 function buildDoctorReport(config, options = {}) {
   const runtime = buildRuntime(options);
@@ -148,7 +149,7 @@ function checkLaunchd(runtime) {
     };
   }
 
-  const definition = inspectSchedulerDefinition(readSchedulerFile(plistPath));
+  const definition = inspectSchedulerDefinition(readSchedulerFile(plistPath), 'darwin');
   if (!definition.safe) return schedulerDefinitionWarning('darwin', definition.reason);
 
   try {
@@ -183,7 +184,7 @@ function checkSystemd(runtime) {
     };
   }
 
-  const definition = inspectSchedulerDefinition(readSchedulerFile(servicePath));
+  const definition = inspectSchedulerDefinition(readSchedulerFile(servicePath), 'linux');
   if (!definition.safe) return schedulerDefinitionWarning('linux', definition.reason);
   return {
     id: 'scheduler',
@@ -199,7 +200,7 @@ function checkTaskScheduler(runtime) {
       'schtasks /query /TN "zclean-hourly" /V /FO LIST',
       { encoding: 'utf-8', timeout: 5000 }
     );
-    const definition = inspectSchedulerDefinition(output);
+    const definition = inspectSchedulerDefinition(output, 'win32');
     if (!definition.safe) return schedulerDefinitionWarning('win32', definition.reason);
     return {
       id: 'scheduler',
@@ -222,19 +223,6 @@ function readSchedulerFile(file) {
   } catch {
     return null;
   }
-}
-
-function inspectSchedulerDefinition(value) {
-  if (typeof value !== 'string' || !value.trim()) {
-    return { safe: false, reason: 'command could not be verified' };
-  }
-  if (/(?:^|[\s>\"])--yes(?:[\s<\"]|$)/i.test(value)) {
-    return { safe: false, reason: 'unsafe automatic cleanup command found' };
-  }
-  if (!/\baudit\b/i.test(value) || !/(?:^|[\s>\"])--json(?:[\s<\"]|$)/i.test(value)) {
-    return { safe: false, reason: 'command is not the report-only audit contract' };
-  }
-  return { safe: true };
 }
 
 function schedulerDefinitionWarning(platform, reason) {

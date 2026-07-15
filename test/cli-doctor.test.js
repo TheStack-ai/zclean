@@ -200,6 +200,68 @@ describe('CLI doctor contract', () => {
     }
   });
 
+  it('rejects scheduler commands that only contain the audit and JSON tokens out of order', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const cases = [
+      {
+        platform: 'darwin',
+        file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
+        content: [
+          '<plist><dict><key>ProgramArguments</key><array>',
+          '<string>/usr/local/bin/zclean</string>',
+          '<string>cache</string>',
+          '<string>--json</string>',
+          '<string>audit</string>',
+          '</array></dict></plist>',
+        ].join(''),
+        execSync: () => 'com.zclean.hourly',
+      },
+      {
+        platform: 'linux',
+        file: ['.config', 'systemd', 'user', 'zclean.timer'],
+        service: ['.config', 'systemd', 'user', 'zclean.service'],
+        content: '[Timer]\nOnCalendar=hourly\n',
+        serviceContent: '[Service]\nExecStart=/usr/local/bin/zclean cache --json audit\n',
+        execSync: () => '',
+      },
+      {
+        platform: 'win32',
+        execSync: () => 'Task To Run: C:\\tools\\zclean.cmd cache --json audit',
+      },
+    ];
+
+    for (const item of cases) {
+      const fixture = makeFixture();
+      let output = '';
+      try {
+        if (item.file) {
+          const file = path.join(fixture.home, ...item.file);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, item.content);
+        }
+        if (item.service) fs.writeFileSync(path.join(fixture.home, ...item.service), item.serviceContent);
+
+        runDoctor(DEFAULT_CONFIG, {
+          json: true,
+          scan: () => [],
+          stats: {},
+          runtime: {
+            platform: item.platform,
+            homedir: fixture.home,
+            execSync: item.execSync,
+          },
+          write: (chunk) => { output += chunk; },
+        });
+
+        const scheduler = JSON.parse(output).checks.find((check) => check.id === 'scheduler');
+        assert.equal(scheduler.status, 'warning', item.platform);
+      } finally {
+        cleanupFixture(fixture);
+      }
+    }
+  });
+
   it('labels an old cleanup as informational instead of a scheduler failure', () => {
     const fixture = makeFixture();
     let output = '';

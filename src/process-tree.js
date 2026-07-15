@@ -2,6 +2,8 @@
 
 const { execSync } = require('child_process');
 const os = require('os');
+const { parseElapsed } = require('./process-elapsed');
+const { providerDiagnostic } = require('./process-diagnostic');
 const { readCIMProcesses, readWMICProcesses } = require('./windows-processes');
 
 const platform = os.platform();
@@ -255,6 +257,7 @@ class ProcessTree {
     return new ProcessTree(result.processes, {
       platform: runtime.platform,
       warnings: result.warnings,
+      errors: result.errors,
     });
   }
 
@@ -264,26 +267,43 @@ class ProcessTree {
     return new ProcessTree(result.processes, {
       platform: runtime.platform,
       warnings: result.warnings,
+      errors: result.errors,
     });
   }
 
   static fromWindows(options = {}) {
     const runtime = runtimeOptions({ ...options, platform: 'win32' });
     const wmic = readWMICProcesses(runtime);
-    if (wmic.processes.length > 0) {
+    if (wmic.processes.length > 0 && wmic.errors.length === 0) {
       return new ProcessTree(wmic.processes, { platform: runtime.platform });
     }
 
-    const warnings = [...wmic.warnings];
+    const warnings = [...wmic.warnings, ...wmic.errors];
     const cim = readCIMProcesses(runtime);
-    if (cim.processes.length > 0) {
+    if (cim.processes.length > 0 && cim.errors.length === 0) {
       return new ProcessTree(cim.processes, {
         platform: runtime.platform,
         warnings: warnings.concat(cim.warnings),
       });
     }
 
-    warnings.push(...cim.warnings);
+    if (cim.processes.length > 0) {
+      return new ProcessTree(cim.processes, {
+        platform: runtime.platform,
+        warnings: warnings.concat(cim.warnings),
+        errors: cim.errors,
+      });
+    }
+
+    if (wmic.processes.length > 0) {
+      return new ProcessTree(wmic.processes, {
+        platform: runtime.platform,
+        warnings: wmic.warnings.concat(cim.warnings, cim.errors),
+        errors: wmic.errors,
+      });
+    }
+
+    warnings.push(...cim.warnings, ...cim.errors);
     return new ProcessTree([], {
       platform: runtime.platform,
       warnings,
@@ -317,47 +337,6 @@ function runtimeOptions(options = {}) {
     currentPid: options.currentPid || process.pid,
     now: options.now || Date.now(),
   };
-}
-
-function providerDiagnostic(provider, code, err) {
-  return {
-    code,
-    provider,
-    message: err instanceof Error ? err.message : String(err || ''),
-  };
-}
-
-/**
- * Parse ps elapsed time format: [[DD-]HH:]MM:SS
- * Moved here from scanner.js to co-locate with ProcessTree.
- *
- * @param {string} elapsed
- * @returns {number} milliseconds
- */
-function parseElapsed(elapsed) {
-  if (!elapsed) return 0;
-
-  let days = 0;
-  let rest = elapsed.trim();
-
-  const dayMatch = rest.match(/^(\d+)-(.+)$/);
-  if (dayMatch) {
-    days = parseInt(dayMatch[1], 10);
-    rest = dayMatch[2];
-  }
-
-  const parts = rest.split(':').map((p) => parseInt(p, 10));
-
-  let hours = 0, minutes = 0, seconds = 0;
-  if (parts.length === 3) {
-    [hours, minutes, seconds] = parts;
-  } else if (parts.length === 2) {
-    [minutes, seconds] = parts;
-  } else if (parts.length === 1) {
-    [seconds] = parts;
-  }
-
-  return ((days * 24 + hours) * 3600 + minutes * 60 + seconds) * 1000;
 }
 
 module.exports = { ProcessTree, parseElapsed };

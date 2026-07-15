@@ -241,6 +241,8 @@ describe('audit report', () => {
 
     const incompleteReport = buildAuditReport({ zombies: incomplete, now: '2026-06-30T01:00:00.000Z' });
     assert.equal(incompleteReport.proGradeReview.safeToClean, false);
+    assert.equal(incompleteReport.summary.reclaimableBytes, 0);
+    assert.equal(incompleteReport.candidates.memoryReclaimable, 0);
     assert.doesNotMatch(JSON.stringify(incompleteReport.recommendations), /zclean --yes/);
     assert.ok(!incompleteReport.nextActions.some((item) => item.command === 'zclean --yes'));
   });
@@ -280,5 +282,33 @@ describe('audit report', () => {
     assert.equal(serialized.includes('top-secret'), false);
     assert.match(serialized, /\[local-path\]/);
     assert.match(serialized, /\[redacted\]/);
+  });
+
+  it('redacts JSON-shaped, prefixed environment, and history failure secrets', () => {
+    const zombies = [];
+    zombies.warnings = [{
+      code: 'provider-warning',
+      provider: 'ps',
+      message: '{"token":"json-secret","OPENAI_API_KEY":"openai-secret"}',
+    }];
+    zombies.errors = [];
+
+    const report = buildAuditReport({
+      zombies,
+      logs: [{
+        timestamp: '2026-06-30T00:00:00.000Z',
+        action: 'kill-failed',
+        pid: 404,
+        error: 'ANTHROPIC_AUTH_TOKEN=env-secret Bearer bearer-secret at /Users/alice/private/project',
+      }],
+      now: '2026-06-30T01:00:00.000Z',
+    });
+    const serialized = JSON.stringify(report);
+
+    for (const secret of ['json-secret', 'openai-secret', 'env-secret', 'bearer-secret', '/Users/alice/private/project']) {
+      assert.equal(serialized.includes(secret), false, secret);
+    }
+    assert.match(serialized, /\[redacted\]/);
+    assert.match(serialized, /\[local-path\]/);
   });
 });

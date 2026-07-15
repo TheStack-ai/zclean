@@ -17,12 +17,16 @@ function diagnosticMessage(error) {
 function sanitizeDiagnosticText(value) {
   return String(value || '')
     .replace(
+      /(["'])(?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*\1\s*:\s*(?:"[^"]*"|'[^']*'|[^,\s}\]]+)/gi,
+      '[credential]:[redacted]'
+    )
+    .replace(
       /(^|[\s("'=])(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       '$1$2=[redacted]'
     )
     .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
     .replace(
-      /\b(?:API_KEY|ACCESS_TOKEN|AUTHORIZATION|COOKIE|PASSWORD|PASSWD|SECRET|TOKEN)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      /\b(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH(?:ORIZATION)?(?:[_-]?TOKEN)?|COOKIE|PASSWORD|PASSWD|SECRET|TOKEN)(?:[_-][A-Z0-9]+)*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       (match) => `${match.split('=')[0]}=[redacted]`
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')

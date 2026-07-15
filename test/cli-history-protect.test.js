@@ -157,6 +157,29 @@ describe('CLI history and protect contracts', () => {
     }
   });
 
+  it('redacts local paths and embedded credentials from protect list JSON', () => {
+    const fixture = makeFixture();
+    const privateEntry = '/Users/alice/private-project/token=super-secret';
+
+    try {
+      fs.writeFileSync(
+        path.join(fixture.configDir, 'config.json'),
+        JSON.stringify({ whitelist: [privateEntry, 'OPENAI_API_KEY=openai-secret'] }),
+        'utf8'
+      );
+
+      const result = runCli(['protect', 'list', '--json'], { fixture });
+      assert.equal(result.status, 0, result.stderr);
+      const serialized = JSON.stringify(parseStdoutJson(result));
+      assert.equal(serialized.includes('/Users/alice/private-project'), false);
+      assert.equal(serialized.includes('super-secret'), false);
+      assert.equal(serialized.includes('openai-secret'), false);
+      assert.match(serialized, /\[local-path\]|\[redacted\]/);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('protect add only persists the whitelist change in a minimal existing config', () => {
     const fixture = makeFixture();
 

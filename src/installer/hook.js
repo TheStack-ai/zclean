@@ -80,23 +80,11 @@ function removeLegacyHooks(settings) {
   let changed = false;
 
   for (const entry of settings.hooks.Stop) {
-    if (isLegacyFlatEntry(entry)) {
+    if (isExactLegacyWrapper(entry)) {
       changed = true;
       continue;
     }
-    if (!entry || typeof entry !== 'object' || !Array.isArray(entry.hooks)) {
-      stop.push(entry);
-      continue;
-    }
-
-    const retained = entry.hooks.filter((subHook) => !isLegacyNestedHook(subHook));
-    if (retained.length === entry.hooks.length) {
-      stop.push(entry);
-      continue;
-    }
-
-    changed = true;
-    if (retained.length > 0) stop.push({ ...entry, hooks: retained });
+    stop.push(entry);
   }
 
   if (!changed) return { changed: false, settings };
@@ -113,22 +101,34 @@ function countLegacyHooks(settings) {
   if (!Array.isArray(stop)) return 0;
   let count = 0;
   for (const entry of stop) {
-    if (isLegacyFlatEntry(entry)) count += 1;
-    if (entry && Array.isArray(entry.hooks)) {
-      count += entry.hooks.filter(isLegacyNestedHook).length;
-    }
+    if (isExactLegacyWrapper(entry)) count += 1;
   }
   return count;
 }
 
-function isLegacyFlatEntry(entry) {
-  return Boolean(entry && typeof entry === 'object' && isLegacyHookCommand(entry.command));
+function isExactLegacyWrapper(entry) {
+  return Boolean(
+    entry
+    && typeof entry === 'object'
+    && !Array.isArray(entry)
+    && Object.keys(entry).length === 2
+    && Object.prototype.hasOwnProperty.call(entry, 'matcher')
+    && Object.prototype.hasOwnProperty.call(entry, 'hooks')
+    && entry.matcher === ''
+    && Array.isArray(entry.hooks)
+    && entry.hooks.length === 1
+    && isExactLegacyHook(entry.hooks[0])
+  );
 }
 
-function isLegacyNestedHook(hook) {
+function isExactLegacyHook(hook) {
   return Boolean(
     hook
     && typeof hook === 'object'
+    && !Array.isArray(hook)
+    && Object.keys(hook).length === 2
+    && Object.prototype.hasOwnProperty.call(hook, 'type')
+    && Object.prototype.hasOwnProperty.call(hook, 'command')
     && hook.type === 'command'
     && isLegacyHookCommand(hook.command)
   );

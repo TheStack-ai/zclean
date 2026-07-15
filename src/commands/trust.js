@@ -10,6 +10,8 @@ const {
   summarizeHistory,
 } = require('../config');
 const { reportLogs, c, bold } = require('../reporter');
+const { sanitizeDiagnosticText } = require('../process-diagnostic');
+const { readPrivateFile } = require('../storage-security');
 
 const SAFE_HISTORY_ENTRY_KEYS = new Set([
   'action',
@@ -59,7 +61,7 @@ function protectList(config, flags) {
     console.log(JSON.stringify({
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
-      whitelist,
+      whitelist: whitelist.map(sanitizeDiagnosticText),
     }, null, 2));
     return;
   }
@@ -125,7 +127,7 @@ function readWritableConfig(fallback) {
   const configFile = getConfigFile();
   if (!fs.existsSync(configFile)) return fallback;
   try {
-    const parsed = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
+    const parsed = JSON.parse(readPrivateFile(configFile));
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
   } catch {}
   return fallback;

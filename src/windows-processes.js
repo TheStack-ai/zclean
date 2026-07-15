@@ -1,11 +1,16 @@
 'use strict';
 
 const { providerDiagnostic } = require('./process-diagnostic');
-
-function normalizePid(pid) {
-  const parsed = Number(pid);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
+const {
+  normalizePid,
+  parseCIMOutput,
+  parseCIMResult,
+  parseJsonRows,
+  parseWindowsDate,
+  parseWMICResult,
+  partialParseDiagnostics,
+  readField,
+} = require('./windows-process-parser');
 
 function readWMICProcesses(runtime) {
   try {
@@ -16,7 +21,7 @@ function readWMICProcesses(runtime) {
       stdio: ['ignore', 'pipe', 'pipe'],
     });
   } catch {
-    return { processes: [], warnings: [] };
+    return { processes: [], warnings: [], errors: [] };
   }
 
   let output;
@@ -34,17 +39,19 @@ function readWMICProcesses(runtime) {
     return {
       processes: [],
       warnings: [providerDiagnostic('wmic', 'process-enumeration-provider-failed', err)],
+      errors: [],
     };
   }
 
-  const processes = parseWMICOutput(String(output || ''), runtime);
+  const parsed = parseWMICResult(String(output || ''), runtime);
   return {
-    processes,
-    warnings: processes.length > 0 ? [] : [providerDiagnostic(
+    processes: parsed.processes,
+    warnings: parsed.processes.length > 0 ? [] : [providerDiagnostic(
       'wmic',
       'process-enumeration-provider-empty',
       'WMIC returned no process rows.'
     )],
+    errors: partialParseDiagnostics('wmic', parsed),
   };
 }
 
@@ -64,17 +71,19 @@ function readCIMProcesses(runtime) {
     return {
       processes: [],
       warnings: [providerDiagnostic('cim', 'process-enumeration-provider-failed', err)],
+      errors: [],
     };
   }
 
-  const processes = parseCIMOutput(String(output || ''), runtime);
+  const parsed = parseCIMResult(String(output || ''), runtime);
   return {
-    processes,
-    warnings: processes.length > 0 ? [] : [providerDiagnostic(
+    processes: parsed.processes,
+    warnings: parsed.processes.length > 0 ? [] : [providerDiagnostic(
       'cim',
       'process-enumeration-provider-empty',
       'CIM returned no process rows.'
     )],
+    errors: partialParseDiagnostics('cim', parsed),
   };
 }
 
@@ -126,149 +135,6 @@ function windowsProcessExists(pid, runtime) {
   } catch {
     return null;
   }
-}
-
-function parseWMICOutput(output, runtime) {
-  const processes = [];
-  let headers = null;
-
-  for (const line of output.trim().split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-
-    const parts = parseCsvLine(trimmed);
-    if (!headers) {
-      headers = parts.map((h) => h.trim().toLowerCase());
-      continue;
-    }
-
-    if (parts.length < headers.length) continue;
-
-    const idx = (name) => headers.indexOf(name);
-    const col = (name) => (idx(name) >= 0 ? parts[idx(name)] : '');
-    const pid = Number(col('processid'));
-    const cmd = String(col('commandline') || '').trim();
-    if (!Number.isFinite(pid) || pid === runtime.currentPid || !cmd) continue;
-
-    processes.push(processFromWindowsFields({
-      pid,
-      ppid: Number(col('parentprocessid')),
-      cmd,
-      workingSet: Number(col('workingsetsize')),
-      creationDate: col('creationdate'),
-      runtime,
-    }));
-  }
-
-  return processes;
-}
-
-function parseCIMOutput(output, runtime) {
-  const rows = parseJsonRows(output);
-  const processes = [];
-
-  for (const row of rows) {
-    const pid = Number(readField(row, 'ProcessId'));
-    const cmd = String(readField(row, 'CommandLine') || '').trim();
-    if (!Number.isFinite(pid) || pid === runtime.currentPid || !cmd) continue;
-
-    processes.push(processFromWindowsFields({
-      pid,
-      ppid: Number(readField(row, 'ParentProcessId')),
-      cmd,
-      workingSet: Number(readField(row, 'WorkingSetSize')),
-      creationDate: readField(row, 'CreationDate'),
-      runtime,
-    }));
-  }
-
-  return processes;
-}
-
-function processFromWindowsFields(fields) {
-  const startTime = parseWindowsDate(fields.creationDate);
-  const startMs = startTime ? new Date(startTime).getTime() : 0;
-  const now = typeof fields.runtime.now === 'function' ? fields.runtime.now() : fields.runtime.now;
-
-  return {
-    pid: fields.pid,
-    ppid: Number.isFinite(fields.ppid) ? fields.ppid : 0,
-    cmd: fields.cmd,
-    mem: Number.isFinite(fields.workingSet) ? fields.workingSet : 0,
-    age: startMs && Number.isFinite(now) ? now - startMs : 0,
-    startTime,
-  };
-}
-
-function parseJsonRows(output) {
-  if (!output.trim()) return [];
-  try {
-    const parsed = JSON.parse(output);
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && typeof parsed === 'object') return [parsed];
-  } catch {
-    return [];
-  }
-  return [];
-}
-
-function parseWindowsDate(value) {
-  if (!value) return null;
-  const raw = String(value).trim();
-  if (!raw) return null;
-
-  if (/^\d{14}/.test(raw)) {
-    const year = raw.substring(0, 4);
-    const month = raw.substring(4, 6);
-    const day = raw.substring(6, 8);
-    const hours = raw.substring(8, 10);
-    const minutes = raw.substring(10, 12);
-    const seconds = raw.substring(12, 14);
-    const date = new Date(`${year}-${month}-${day}T${hours}:${minutes}:${seconds}`);
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
-  }
-
-  const date = new Date(raw);
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
-}
-
-function readField(row, name) {
-  if (!row || typeof row !== 'object') return undefined;
-  if (Object.prototype.hasOwnProperty.call(row, name)) return row[name];
-
-  const lower = name.toLowerCase();
-  const key = Object.keys(row).find((candidate) => candidate.toLowerCase() === lower);
-  return key ? row[key] : undefined;
-}
-
-function parseCsvLine(line) {
-  const parts = [];
-  let current = '';
-  let quoted = false;
-
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === '"') {
-      if (quoted && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        quoted = !quoted;
-      }
-      continue;
-    }
-
-    if (char === ',' && !quoted) {
-      parts.push(current);
-      current = '';
-      continue;
-    }
-
-    current += char;
-  }
-
-  parts.push(current);
-  return parts;
 }
 
 module.exports = {

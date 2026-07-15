@@ -121,7 +121,7 @@ function hasScanMetadata(candidate) {
 }
 
 function validIdentity(identity) {
-  return identity === null || (
+  return Boolean(
     identity
     && typeof identity.dev === 'string'
     && typeof identity.ino === 'string'
@@ -139,8 +139,24 @@ function stableIdentity(stat) {
 }
 
 function sameIdentity(scanned, current) {
-  if (scanned === null) return true;
-  return current !== null && scanned.dev === current.dev && scanned.ino === current.ino;
+  return validIdentity(scanned)
+    && validIdentity(current)
+    && scanned.dev === current.dev
+    && scanned.ino === current.ino;
+}
+
+function quarantinedSkipReason(candidate, quarantinedPath) {
+  const state = readPathState(quarantinedPath);
+  if (state.lstatError) return { code: 'cache-quarantine-missing' };
+  if (state.type !== 'directory') return { code: 'cache-quarantine-type-changed' };
+  if (state.realpathError) return { code: 'cache-quarantine-realpath-unverified' };
+  if (!isInsideRoot(candidate.canonicalRoot, state.canonicalPath)) {
+    return { code: 'cache-quarantine-outside-root' };
+  }
+  if (!sameIdentity(candidate.identity, state.identity)) {
+    return { code: 'cache-quarantine-identity-changed' };
+  }
+  return null;
 }
 
 function pathType(stat) {
@@ -168,4 +184,5 @@ module.exports = {
   containedDirectoryState,
   directorySize,
   preDeleteSkipReason,
+  quarantinedSkipReason,
 };

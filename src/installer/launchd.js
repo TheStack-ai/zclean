@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync, execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { LOCAL_BIN_HINT, resolveZcleanBin } = require('./bin-path');
 
 const PLIST_NAME = 'com.zclean.hourly';
@@ -14,8 +14,9 @@ const PLIST_PATH = path.join(PLIST_DIR, `${PLIST_NAME}.plist`);
  * Resolve the active nvm node bin path, if nvm is installed.
  * Returns the path or null.
  */
-function resolveNvmNodeBin() {
-  const nvmDir = path.join(os.homedir(), '.nvm', 'versions', 'node');
+function resolveNvmNodeBin(options = {}) {
+  const homeDir = options.homedir || os.homedir();
+  const nvmDir = path.join(homeDir, '.nvm', 'versions', 'node');
   try {
     if (!fs.existsSync(nvmDir)) return null;
     // Use the currently running node's path if it's under .nvm
@@ -37,7 +38,8 @@ function resolveNvmNodeBin() {
 /**
  * Generate the launchd plist XML.
  */
-function generatePlist(binPath) {
+function generatePlist(binPath, options = {}) {
+  const homeDir = options.homedir || os.homedir();
   const programArgs = [binPath, 'audit', '--json']
     .map((arg) => `      <string>${escapeXml(arg)}</string>`)
     .join('\n');
@@ -48,9 +50,9 @@ function generatePlist(binPath) {
     '/usr/bin',
     '/bin',
     '/opt/homebrew/bin',
-    path.join(os.homedir(), '.local', 'bin'),
+    path.join(homeDir, '.local', 'bin'),
   ];
-  const nvmBin = resolveNvmNodeBin();
+  const nvmBin = resolveNvmNodeBin({ homedir: homeDir });
   if (nvmBin) {
     pathParts.push(nvmBin);
   }
@@ -75,15 +77,15 @@ ${programArgs}
     <false/>
 
     <key>StandardOutPath</key>
-    <string>${path.join(os.homedir(), '.zclean', 'launchd.log')}</string>
+    <string>${escapeXml(path.join(homeDir, '.zclean', 'launchd.log'))}</string>
 
     <key>StandardErrorPath</key>
-    <string>${path.join(os.homedir(), '.zclean', 'launchd.log')}</string>
+    <string>${escapeXml(path.join(homeDir, '.zclean', 'launchd.log'))}</string>
 
     <key>EnvironmentVariables</key>
     <dict>
         <key>PATH</key>
-        <string>${envPath}</string>
+        <string>${escapeXml(envPath)}</string>
     </dict>
 </dict>
 </plist>
@@ -95,57 +97,73 @@ ${programArgs}
  *
  * @returns {{ installed: boolean, message: string }}
  */
-function installLaunchd() {
-  if (os.platform() !== 'darwin') {
+function installLaunchd(options = {}) {
+  const runtimePlatform = options.platform || os.platform();
+  if (runtimePlatform !== 'darwin') {
     return { installed: false, message: 'launchd is macOS only.' };
   }
 
-  const binPath = resolveZcleanBin();
+  const homeDir = options.homedir || os.homedir();
+  const plistPath = options.plistPath || path.join(homeDir, 'Library', 'LaunchAgents', `${PLIST_NAME}.plist`);
+  const plistDir = path.dirname(plistPath);
+  const uid = options.uid ?? process.getuid?.();
+  const run = options.execFileSync || execFileSync;
+  const binPath = options.binPath || resolveZcleanBin();
   if (!binPath) {
     return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
   }
 
-  // Ensure LaunchAgents directory exists
-  if (!fs.existsSync(PLIST_DIR)) {
-    fs.mkdirSync(PLIST_DIR, { recursive: true });
+  if (!fs.existsSync(plistDir)) {
+    fs.mkdirSync(plistDir, { recursive: true });
   }
 
-  const plist = generatePlist(binPath);
-
-  // Unload existing if present
-  if (fs.existsSync(PLIST_PATH)) {
-    try {
-      execSync(`launchctl bootout gui/${process.getuid()} ${PLIST_PATH}`, {
-        encoding: 'utf-8',
-        timeout: 5000,
-      });
-    } catch {
-      // Might not be loaded
-    }
+  if (!stopExistingLaunchd(run, uid, plistPath)) {
+    return {
+      installed: false,
+      active: false,
+      message: 'Existing launchd job could not be stopped; its plist was preserved.',
+    };
   }
 
-  // Write plist
-  fs.writeFileSync(PLIST_PATH, plist, 'utf-8');
+  const plist = generatePlist(binPath, { homedir: homeDir });
+  fs.writeFileSync(plistPath, plist, 'utf-8');
 
-  // Load
   try {
-    execSync(`launchctl bootstrap gui/${process.getuid()} ${PLIST_PATH}`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
+    run('launchctl', ['bootstrap', `gui/${uid}`, plistPath], launchctlOptions());
   } catch (err) {
     return {
       installed: true,
       active: false,
-      message: `Plist written to ${PLIST_PATH} but launchctl load failed: ${err.message}. Try: launchctl bootstrap gui/$(id -u) ${PLIST_PATH}`,
+      message: `Plist written to ${plistPath} but launchctl load failed: ${err.message}. Try: launchctl bootstrap gui/$(id -u) ${plistPath}`,
     };
   }
 
   return {
     installed: true,
     active: true,
-    message: `Hourly launchd agent installed: ${PLIST_PATH}`,
+    message: `Hourly launchd agent installed: ${plistPath}`,
   };
+}
+
+function stopExistingLaunchd(run, uid, plistPath) {
+  try {
+    run('launchctl', ['bootout', `gui/${uid}/${PLIST_NAME}`], launchctlOptions());
+    return true;
+  } catch {}
+
+  if (fs.existsSync(plistPath)) {
+    try {
+      run('launchctl', ['bootout', `gui/${uid}`, plistPath], launchctlOptions());
+      return true;
+    } catch {}
+  }
+
+  try {
+    run('launchctl', ['print', `gui/${uid}/${PLIST_NAME}`], launchctlOptions());
+    return false;
+  } catch (error) {
+    return isLaunchdServiceMissing(error);
+  }
 }
 
 /**

@@ -29,10 +29,9 @@ function buildAuditReport(...args) {
   const eligibleCandidates = candidates.filter((item) => item.cleanupEligible);
   const eligibleCount = eligibleCandidates.length;
   const blockedCount = candidates.length - eligibleCount;
-  const reclaimableBytes = eligibleCandidates.reduce(
-    (sum, item) => sum + (item.memoryBytes || 0),
-    0
-  );
+  const reclaimableBytes = enumerationComplete
+    ? eligibleCandidates.reduce((sum, item) => sum + (item.memoryBytes || 0), 0)
+    : 0;
   const topCandidates = sortCandidatesByRisk(candidates);
   const history = buildHistory(logs, stats);
   const status = errors.length > 0 ? 'blocked' : zombies.length > 0 ? 'attention' : 'clean';

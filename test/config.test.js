@@ -126,6 +126,69 @@ describe('config storage', () => {
     assert.equal(mode(getLogFile()), 0o600);
   });
 
+  it('refuses to overwrite a config destination that is a symbolic link', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-config-link-test-'));
+    const valuable = path.join(root, 'valuable.json');
+    const configRoot = path.join(root, 'config');
+    process.env.ZCLEAN_CONFIG_DIR = configRoot;
+    fs.mkdirSync(configRoot);
+    fs.writeFileSync(valuable, '{"keep":true}\n');
+    try {
+      fs.symlinkSync(valuable, getConfigFile(), 'file');
+    } catch (error) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip(`file links unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    assert.throws(() => saveConfig({ whitelist: ['new-value'] }), /symbolic|unsafe|regular/i);
+    assert.equal(fs.readFileSync(valuable, 'utf8'), '{"keep":true}\n');
+    assert.equal(fs.lstatSync(getConfigFile()).isSymbolicLink(), true);
+  });
+
+  it('refuses to append history through a symbolic link', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-history-link-test-'));
+    const valuable = path.join(root, 'valuable.log');
+    const configRoot = path.join(root, 'config');
+    process.env.ZCLEAN_CONFIG_DIR = configRoot;
+    fs.mkdirSync(configRoot);
+    fs.writeFileSync(valuable, 'keep\n');
+    try {
+      fs.symlinkSync(valuable, getLogFile(), 'file');
+    } catch (error) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip(`file links unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+
+    assert.throws(() => appendLog({ action: 'test-log' }), /symbolic|unsafe|regular/i);
+    assert.equal(fs.readFileSync(valuable, 'utf8'), 'keep\n');
+  });
+
+  it('refuses a symbolic-link config root', (t) => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-root-link-test-'));
+    const actualRoot = path.join(root, 'actual');
+    const linkedRoot = path.join(root, 'linked');
+    fs.mkdirSync(actualRoot);
+    try {
+      fs.symlinkSync(actualRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch (error) {
+      if (process.platform === 'win32' && ['EPERM', 'EACCES'].includes(error.code)) {
+        t.skip(`directory links unavailable: ${error.code}`);
+        return;
+      }
+      throw error;
+    }
+    process.env.ZCLEAN_CONFIG_DIR = linkedRoot;
+
+    assert.throws(() => saveConfig({ whitelist: ['new-value'] }), /symbolic|unsafe|directory/i);
+    assert.equal(fs.existsSync(path.join(actualRoot, 'config.json')), false);
+  });
+
   it('summarizes history actions for JSON command surfaces', () => {
     const summary = summarizeHistory(
       [

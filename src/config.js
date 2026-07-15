@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const {
   appendPrivateFile,
+  readPrivateFile,
   sanitizeHistoryEntry,
   sanitizeHistoryFile,
   secureDirectory,
@@ -90,7 +91,7 @@ function loadConfig() {
   if (fs.existsSync(configFile)) {
     secureFile(configFile);
     try {
-      const raw = fs.readFileSync(configFile, 'utf-8');
+      const raw = readPrivateFile(configFile);
       const userConfig = JSON.parse(raw);
       const config = { ...DEFAULT_CONFIG, ...userConfig };
       if (!(parseDuration(config.maxAge) > 0)) config.maxAge = DEFAULT_CONFIG.maxAge;
@@ -128,7 +129,7 @@ function readLogs(limit = 50) {
   const logFile = getLogFile();
   if (!fs.existsSync(logFile)) return [];
   try {
-    const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
+    const lines = readPrivateFile(logFile).trim().split('\n').filter(Boolean);
     return lines
       .slice(-limit)
       .map((line) => {
@@ -149,7 +150,7 @@ function pruneLogs(config) {
   if (!retentionMs || !fs.existsSync(logFile)) return;
 
   const cutoff = Date.now() - retentionMs;
-  const lines = fs.readFileSync(logFile, 'utf-8').trim().split('\n').filter(Boolean);
+  const lines = readPrivateFile(logFile).trim().split('\n').filter(Boolean);
   const kept = lines.flatMap((line) => {
     try {
       const entry = sanitizeHistoryEntry(JSON.parse(line));

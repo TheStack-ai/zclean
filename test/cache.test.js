@@ -160,6 +160,36 @@ describe('workspace cache hygiene', () => {
     }
   });
 
+  it('does not delete a replacement directory swapped in after the final precheck', () => {
+    const fixture = makeFixture();
+    try {
+      const workspace = path.join(fixture.root, 'workspace');
+      const cachePath = path.join(workspace, '.turbo');
+      const movedCachePath = path.join(fixture.root, 'moved-cache');
+      const valuablePath = path.join(workspace, 'valuable-data');
+      const valuableFile = path.join(valuablePath, 'important.txt');
+      writeFile(path.join(cachePath, 'state.json'), 'cache-data');
+      writeFile(valuableFile, 'valuable-data');
+      const candidates = scanCacheTargets(workspace);
+
+      const result = cleanCacheTargets(candidates, {
+        rmSync(target, options) {
+          if (fs.existsSync(cachePath) && !fs.existsSync(movedCachePath)) {
+            fs.renameSync(cachePath, movedCachePath);
+            fs.renameSync(valuablePath, cachePath);
+          }
+          fs.rmSync(target, options);
+        },
+      });
+
+      assert.equal(result.ok, true);
+      assert.equal(fs.existsSync(valuableFile), true);
+      assert.equal(fs.readFileSync(valuableFile, 'utf8'), 'valuable-data');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('skips a cache path whose type changes after scan', () => {
     const fixture = makeFixture();
     try {

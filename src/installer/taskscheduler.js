@@ -18,7 +18,7 @@ function buildCreateTaskArgs(binPath) {
 
 function formatTaskRunCommand(binPath) {
   const text = String(binPath);
-  const command = /\s/.test(text) ? `"${text.replace(/"/g, '\\"')}"` : text;
+  const command = `"${text.replace(/"/g, '\\"')}"`;
   return `${command} audit --json`;
 }
 
