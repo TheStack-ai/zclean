@@ -26,9 +26,13 @@ function extractSchedulerArgs(value, platform) {
   }
 
   if (platform === 'linux') {
-    const lines = [...value.matchAll(/^ExecStart=(.+)$/gm)];
-    if (lines.length > 0) {
-      return lines.length === 1 ? parseExactCommand(lines[0][1].trim()) : null;
+    const actions = [...value.matchAll(
+      /^(Exec(?:Condition|StartPre|Start|StartPost|Reload|Stop|StopPost))=(.*)$/gm
+    )];
+    if (actions.length > 0) {
+      return actions.length === 1 && actions[0][1] === 'ExecStart'
+        ? parseExactCommand(actions[0][2].trim())
+        : null;
     }
     const loaded = [...value.matchAll(/argv\[\]=([^;\r\n]+)(?:;|$)/gi)];
     return loaded.length === 1 ? parseExactCommand(loaded[0][1].trim()) : null;

@@ -111,6 +111,24 @@ describe('public diagnostic safety', () => {
     assert.equal(sanitizeDiagnosticText(input), 'provider returned Bearer [redacted]');
   });
 
+  it('redacts a quoted Bearer value containing spaces', () => {
+    const input = '--authorization Bearer "quoted secret tail"';
+
+    assert.equal(sanitizeDiagnosticText(input), '--authorization Bearer [redacted]');
+  });
+
+  it('redacts backtick-wrapped and file URI local paths', () => {
+    const input = [
+      'failed `/Users/alice/private/report.json`',
+      'failed file:///Users/alice/private/report.json',
+    ].join('; ');
+
+    const sanitized = sanitizeDiagnosticText(input);
+
+    assert.equal(sanitized.includes('/Users/alice/private/report.json'), false);
+    assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
+  });
+
   it('keeps ordinary hyphenated prose readable', () => {
     const input = 'worker pre-flight check is retry-safe and well-formed';
 

@@ -17,6 +17,10 @@ function diagnosticMessage(error) {
 function sanitizeDiagnosticText(value) {
   return String(value || '')
     .replace(
+      /\bBearer\s+(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s,;"'`{}\[\]]+)/gi,
+      'Bearer ZCLEAN_REDACTED_VALUE'
+    )
+    .replace(
       /(["'])((?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*)\1(\s*:\s*)((?:"[^"]*"|'[^']*'|Bearer\s+[^,\s}\]]+|[^,\s}\]]+))/gi,
       (match, quote, key, separator, credential) => {
         const value = credential[0] === '"' || credential[0] === "'"
@@ -48,11 +52,15 @@ function sanitizeDiagnosticText(value) {
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')
     .replace(
-      /(^|[\s("'=:;,\[{])(?:[A-Za-z]:\\|\\\\)[^"'{}\[\],;)]*?(?=$|["'{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
+      /\bfile:\/\/\/(?:(?:[A-Za-z]:)?[\\/])?[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:file:\/\/\/|[A-Za-z]:[\\/]|\/))/gi,
+      '[local-path]'
+    )
+    .replace(
+      /(^|[\s("'`=:;,\[{])(?:[A-Za-z]:\\|\\\\)[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
       '$1[local-path]'
     )
     .replace(
-      /(^|[\s("'=:;,\[{])\/(?!\/)[^"'{}\[\],;)]*?(?=$|["'{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
+      /(^|[\s("'`=:;,\[{])\/(?!\/)[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
       '$1[local-path]'
     )
     .replace(/\s+/g, ' ')

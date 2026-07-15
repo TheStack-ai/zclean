@@ -153,6 +153,18 @@ describe('loaded scheduler action cardinality', () => {
 });
 
 describe('doctor scheduler action cardinality', () => {
+  it('rejects a systemd unit with an additional post-start action', () => {
+    const definition = [
+      '[Service]',
+      'ExecStart=/usr/local/bin/zclean audit --json',
+      'ExecStartPost=/usr/local/bin/zclean -y',
+    ].join('\n');
+
+    const result = inspectSchedulerDefinition(definition, 'linux');
+
+    assert.equal(result.safe, false);
+  });
+
   it('rejects loaded systemd state with two report-only actions', () => {
     const definition = [
       'argv[]=/usr/local/bin/zclean audit --json ;',
