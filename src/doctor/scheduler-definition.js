@@ -79,7 +79,10 @@ function parseExactCommand(value) {
 }
 
 function isZcleanExecutable(value) {
-  const unquoted = String(value || '').replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
+  const raw = String(value || '');
+  if (!raw || raw !== raw.trim()) return false;
+  const unquoted = raw.replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
+  if (!unquoted || unquoted !== unquoted.trim()) return false;
   const basename = unquoted.split(/[\\/]/).pop().toLowerCase();
   return basename === 'zclean'
     || basename === 'zclean.js'

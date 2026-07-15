@@ -16,7 +16,12 @@ it('warns when launchd values match only after trimming', () => {
   const definitions = [
     exact.replace('ProgramArguments', ' ProgramArguments '),
     exact.replace('/usr/local/bin/zclean', '/usr/local/bin/zclean '),
+    exact.replace('/usr/local/bin/zclean', ' /usr/local/bin/zclean'),
     exact.replace('<string>audit</string>', '<string> audit </string>'),
+    [
+      '<key>Program</key><string> /usr/local/bin/zclean</string>',
+      exact.replace('/usr/local/bin/zclean', ' /usr/local/bin/zclean'),
+    ].join(''),
   ];
 
   for (const definition of definitions) {

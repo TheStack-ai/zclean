@@ -28,7 +28,12 @@ describe('scheduler definition safety', () => {
     const definitions = [
       exact.replace('ProgramArguments', ' ProgramArguments '),
       exact.replace('/usr/local/bin/zclean', '/usr/local/bin/zclean '),
+      exact.replace('/usr/local/bin/zclean', ' /usr/local/bin/zclean'),
       exact.replace('<string>audit</string>', '<string> audit </string>'),
+      [
+        '<key>Program</key><string> /usr/local/bin/zclean</string>',
+        exact.replace('/usr/local/bin/zclean', ' /usr/local/bin/zclean'),
+      ].join(''),
     ];
 
     for (const definition of definitions) {
@@ -37,6 +42,26 @@ describe('scheduler definition safety', () => {
         'darwin'
       );
       assert.equal(inspection.safe, false, definition);
+    }
+  });
+
+  it('requires exact Windows command and argument values', () => {
+    const exact = [
+      '<Task><Actions><Exec>',
+      '<Command>C:\\Tools\\zclean.cmd</Command>',
+      '<Arguments>audit --json</Arguments>',
+      '</Exec></Actions></Task>',
+    ].join('');
+    assert.deepEqual(inspectSchedulerDefinition(exact, 'win32'), { safe: true });
+
+    const definitions = [
+      exact.replace('C:\\Tools\\zclean.cmd', ' C:\\Tools\\zclean.cmd'),
+      exact.replace('C:\\Tools\\zclean.cmd', 'C:\\Tools\\zclean.cmd '),
+      exact.replace('audit --json', ' audit --json'),
+      exact.replace('audit --json', 'audit --json '),
+    ];
+    for (const definition of definitions) {
+      assert.equal(inspectSchedulerDefinition(definition, 'win32').safe, false, definition);
     }
   });
 
