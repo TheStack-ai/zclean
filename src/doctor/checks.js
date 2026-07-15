@@ -8,6 +8,7 @@ const { scan, hasScanErrors } = require('../scanner');
 const { getConfigFile, getCumulativeStats } = require('../config');
 const { inspectLegacyHook } = require('../installer/hook');
 const { sanitizeDiagnostics, sanitizeDiagnosticText } = require('../process-diagnostic');
+const { systemdShowCommand } = require('../systemd-contract');
 const { inspectSchedulerDefinition } = require('./scheduler-definition');
 
 function buildDoctorReport(config, options = {}) {
@@ -190,7 +191,7 @@ function checkSystemd(runtime) {
   let timerState;
   try {
     loadedDefinition = runtime.execSync(
-      'systemctl --user show zclean.service --property=ExecStart --value',
+      systemdShowCommand('zclean.service'),
       { encoding: 'utf-8', timeout: 5000 }
     );
     timerState = runtime.execSync(

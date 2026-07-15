@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { parseDuration, parseMemory } = require('./config-values');
 const {
   appendPrivateFile,
   readPrivateFile,
@@ -43,36 +44,6 @@ const DEFAULT_CONFIG = {
   customAiDirs: [],
   customPatterns: [],
 };
-
-/**
- * Parse a duration string like "24h", "30d", "1h" into milliseconds.
- */
-function parseDuration(str) {
-  const match = String(str).match(/^(\d+)\s*(ms|s|m|h|d)$/i);
-  if (!match) return null;
-  const value = parseInt(match[1], 10);
-  const unit = match[2].toLowerCase();
-  const multipliers = {
-    ms: 1,
-    s: 1000,
-    m: 60 * 1000,
-    h: 60 * 60 * 1000,
-    d: 24 * 60 * 60 * 1000,
-  };
-  return value * multipliers[unit];
-}
-
-/**
- * Parse a memory string like "500MB", "1GB" into bytes.
- */
-function parseMemory(str) {
-  const match = String(str).match(/^(\d+(?:\.\d+)?)\s*(B|KB|MB|GB)$/i);
-  if (!match) return null;
-  const value = parseFloat(match[1]);
-  const unit = match[2].toUpperCase();
-  const multipliers = { B: 1, KB: 1024, MB: 1024 * 1024, GB: 1024 * 1024 * 1024 };
-  return Math.floor(value * multipliers[unit]);
-}
 
 /**
  * Ensure the config directory exists.

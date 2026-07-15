@@ -129,6 +129,18 @@ describe('public diagnostic safety', () => {
     assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
   });
 
+  it('redacts an unterminated quoted Bearer value to the end', () => {
+    const input = '--authorization Bearer "truncated secret tail';
+
+    assert.equal(sanitizeDiagnosticText(input), '--authorization Bearer [redacted]');
+  });
+
+  it('redacts file URIs with a localhost authority', () => {
+    const input = 'failed file://localhost/Users/alice/private/report.json';
+
+    assert.equal(sanitizeDiagnosticText(input), 'failed [local-path]');
+  });
+
   it('keeps ordinary hyphenated prose readable', () => {
     const input = 'worker pre-flight check is retry-safe and well-formed';
 

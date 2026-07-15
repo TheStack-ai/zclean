@@ -38,7 +38,13 @@ function cleanCacheTargets(candidates, options = {}) {
       runtime.rename(candidate.absolutePath, quarantinedPath);
       const quarantinedReason = quarantinedSkipReason(candidate, quarantinedPath);
       if (quarantinedReason) {
-        restoreQuarantined(runtime, candidate.absolutePath, quarantinedPath, quarantineDirectory);
+        const restoreError = restoreQuarantined(
+          runtime,
+          candidate.absolutePath,
+          quarantinedPath,
+          quarantineDirectory
+        );
+        if (restoreError) throw restoreError;
         skipped.push({ ...candidate, reason: quarantinedReason });
         continue;
       }
@@ -46,14 +52,26 @@ function cleanCacheTargets(candidates, options = {}) {
       removeEmptyDirectory(runtime, quarantineDirectory);
       deleted.push(candidate);
     } catch (error) {
-      restoreQuarantined(runtime, candidate.absolutePath, quarantinedPath, quarantineDirectory);
+      const restoreError = restoreQuarantined(
+        runtime,
+        candidate.absolutePath,
+        quarantinedPath,
+        quarantineDirectory
+      );
+      const recoveryError = error.recoveryError || restoreError;
       failed.push({
         ...candidate,
-        error: structuredError(
-          'cache-delete-failed',
-          'A cache directory could not be removed.',
-          error
-        ),
+        error: recoveryError
+          ? structuredError(
+            'cache-recovery-failed',
+            'A cache directory could not be restored after cleanup stopped.',
+            recoveryError
+          )
+          : structuredError(
+            'cache-delete-failed',
+            'A cache directory could not be removed.',
+            error
+          ),
       });
     }
   }
@@ -92,16 +110,64 @@ function stageAndRemoveEntry(context, target) {
   const stagedPath = path.join(stagingDirectory, 'target');
   runtime.rename(target, stagedPath);
   assertQuarantineUnchanged(context);
+  let initial;
   try {
-    const stat = runtime.inspect(stagedPath);
+    initial = runtime.inspect(stagedPath);
     assertQuarantineUnchanged(context);
+    assertStagedUnchanged(runtime, stagedPath, initial);
     runtime.remove(stagedPath, {
       force: true,
-      recursive: stat.isDirectory() && !stat.isSymbolicLink(),
+      recursive: initial.isDirectory() && !initial.isSymbolicLink(),
     });
+  } catch (error) {
+    const recoveryError = restoreStagedEntry(context, target, stagedPath, initial);
+    if (recoveryError) error.recoveryError = recoveryError;
+    throw error;
   } finally {
     removeEmptyDirectory(runtime, stagingDirectory);
   }
+}
+
+function restoreStagedEntry(context, target, stagedPath, initial) {
+  const { runtime } = context;
+  try {
+    assertQuarantineUnchanged(context);
+    if (!initial || !runtime.existsSync(stagedPath) || runtime.existsSync(target)) {
+      throw new Error('Staged cache entry could not be restored.');
+    }
+    const current = runtime.inspect(stagedPath);
+    if (!sameIdentity(initial, current)) {
+      throw new Error('Staged cache entry identity changed before recovery.');
+    }
+    runtime.rename(stagedPath, target);
+    return null;
+  } catch (error) {
+    error.code = 'CACHE_RECOVERY_FAILED';
+    return error;
+  }
+}
+
+function assertStagedUnchanged(runtime, stagedPath, initial) {
+  let current;
+  try {
+    current = runtime.inspect(stagedPath);
+  } catch (cause) {
+    const error = new Error('Staged cache path could not be verified before removal.');
+    error.code = 'cache-delete-identity-changed';
+    error.cause = cause;
+    throw error;
+  }
+  if (sameIdentity(initial, current)) return;
+  const error = new Error('Staged cache path changed before removal.');
+  error.code = 'cache-delete-identity-changed';
+  throw error;
+}
+
+function sameIdentity(left, right) {
+  return left.dev === right.dev
+    && left.ino === right.ino
+    && left.isDirectory() === right.isDirectory()
+    && left.isSymbolicLink() === right.isSymbolicLink();
 }
 
 function assertQuarantineUnchanged({ candidate, quarantinedPath }) {
@@ -113,17 +179,27 @@ function assertQuarantineUnchanged({ candidate, quarantinedPath }) {
 }
 
 function restoreQuarantined(runtime, originalPath, quarantinedPath, quarantineDirectory) {
+  let recoveryError = null;
   try {
     if (quarantinedPath && runtime.existsSync(quarantinedPath) && !runtime.existsSync(originalPath)) {
       runtime.rename(quarantinedPath, originalPath);
     }
-  } catch {}
-  removeEmptyDirectory(runtime, quarantineDirectory);
+  } catch (error) {
+    error.code = 'CACHE_RECOVERY_FAILED';
+    recoveryError = error;
+  }
+  const cleanupError = removeEmptyDirectory(runtime, quarantineDirectory);
+  return recoveryError || cleanupError;
 }
 
 function removeEmptyDirectory(runtime, directory) {
-  if (!directory) return;
-  try { runtime.removeDirectory(directory); } catch {}
+  if (!directory) return null;
+  try {
+    runtime.removeDirectory(directory);
+    return null;
+  } catch (error) {
+    return error;
+  }
 }
 
 module.exports = { cleanCacheTargets };

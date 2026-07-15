@@ -12,9 +12,11 @@ function writeFileAtomic(filePath, contents, options = {}) {
   }
   const tempPath = path.join(directory, tempName);
   let initial;
+  let parentInitial;
   let tempCreated = false;
 
   try {
+    parentInitial = readParentDirectory(runtimeFs, directory);
     const readSource = options.expectedSource !== undefined;
     initial = readDestination(runtimeFs, filePath, readSource);
     if (initial && initial.type !== 'file') {
@@ -34,6 +36,10 @@ function writeFileAtomic(filePath, contents, options = {}) {
     tempCreated = true;
     runtimeFs.chmodSync(tempPath, mode);
 
+    const parentCurrent = readParentDirectory(runtimeFs, directory);
+    if (!sameDestination(parentInitial, parentCurrent)) {
+      throw new Error('Atomic write parent directory changed before rename.');
+    }
     const current = readDestination(runtimeFs, filePath, readSource);
     if (!sameDestination(initial, current)) {
       throw new Error('Atomic write destination identity changed before rename.');
@@ -47,10 +53,27 @@ function writeFileAtomic(filePath, contents, options = {}) {
     return { ok: true };
   } catch (error) {
     try {
-      if (tempCreated && runtimeFs.existsSync(tempPath)) runtimeFs.unlinkSync(tempPath);
+      const parentCurrent = readParentDirectory(runtimeFs, directory);
+      if (tempCreated
+        && sameDestination(parentInitial, parentCurrent)
+        && runtimeFs.existsSync(tempPath)) {
+        runtimeFs.unlinkSync(tempPath);
+      }
     } catch {}
     return { ok: false, error };
   }
+}
+
+function readParentDirectory(runtimeFs, directory) {
+  const stat = runtimeFs.lstatSync(directory, { bigint: true });
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error('Atomic write parent must be a regular directory.');
+  }
+  return {
+    dev: stat.dev.toString(),
+    ino: stat.ino.toString(),
+    type: 'directory',
+  };
 }
 
 function writeJsonAtomic(filePath, value, options = {}) {

@@ -2,71 +2,7 @@
 
 const { sanitizeTerminalText } = require('./terminal-text');
 const { normalizeProvider, toPublicRuntimeMetadata } = require('./runtime-classifier');
-
-/**
- * ANSI color codes — no external dependencies.
- */
-const C = {
-  reset: '\x1b[0m',
-  bold: '\x1b[1m',
-  dim: '\x1b[2m',
-  red: '\x1b[31m',
-  green: '\x1b[32m',
-  yellow: '\x1b[33m',
-  blue: '\x1b[34m',
-  magenta: '\x1b[35m',
-  cyan: '\x1b[36m',
-  white: '\x1b[37m',
-  gray: '\x1b[90m',
-};
-
-// Disable colors if NO_COLOR env is set or not a TTY
-const useColor = !process.env.NO_COLOR && process.stdout.isTTY;
-
-function c(color, text) {
-  if (!useColor) return text;
-  return `${C[color]}${text}${C.reset}`;
-}
-
-function bold(text) {
-  if (!useColor) return text;
-  return `${C.bold}${text}${C.reset}`;
-}
-
-/**
- * Format bytes into human-readable string.
- */
-function formatBytes(bytes) {
-  if (bytes === 0) return '0 B';
-  const units = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
-  const val = (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0);
-  return `${val} ${units[i]}`;
-}
-
-/**
- * Format milliseconds into human-readable duration.
- */
-function formatDuration(ms) {
-  if (ms < 60000) return `${Math.floor(ms / 1000)}s`;
-  if (ms < 3600000) return `${Math.floor(ms / 60000)}m`;
-  if (ms < 86400000) {
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return m > 0 ? `${h}h ${m}m` : `${h}h`;
-  }
-  const d = Math.floor(ms / 86400000);
-  const h = Math.floor((ms % 86400000) / 3600000);
-  return h > 0 ? `${d}d ${h}h` : `${d}d`;
-}
-
-/**
- * Truncate a string to maxLen, adding ellipsis if needed.
- */
-function truncate(str, maxLen = 80) {
-  if (str.length <= maxLen) return str;
-  return str.substring(0, maxLen - 3) + '...';
-}
+const { C, bold, c, formatBytes, formatDuration, truncate } = require('./reporter-format');
 
 function getDiagnostics(result) {
   return {

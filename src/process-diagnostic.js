@@ -17,7 +17,7 @@ function diagnosticMessage(error) {
 function sanitizeDiagnosticText(value) {
   return String(value || '')
     .replace(
-      /\bBearer\s+(?:"[^"]*"|'[^']*'|`[^`]*`|[^\s,;"'`{}\[\]]+)/gi,
+      /\bBearer\s+(?:"[^"]*(?:"|$)|'[^']*(?:'|$)|`[^`]*(?:`|$)|[^\s,;"'`{}\[\]]+)/gi,
       'Bearer ZCLEAN_REDACTED_VALUE'
     )
     .replace(
@@ -52,7 +52,7 @@ function sanitizeDiagnosticText(value) {
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')
     .replace(
-      /\bfile:\/\/\/(?:(?:[A-Za-z]:)?[\\/])?[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:file:\/\/\/|[A-Za-z]:[\\/]|\/))/gi,
+      /\bfile:\/\/(?:[^/\s"'`{}\[\],;)]+)?\/(?:(?:[A-Za-z]:)?[\\/])?[^"'`{}\[\],;)]*?(?=$|["'`{}\[\],;)]|\s+--|\s+(?:file:\/\/|[A-Za-z]:[\\/]|\/))/gi,
       '[local-path]'
     )
     .replace(

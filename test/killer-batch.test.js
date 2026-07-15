@@ -4,7 +4,6 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { killZombies } = require('../src/killer');
 
-// Fake zombies for testing batch limits (verifyProcess will fail → skipped, which is fine)
 function fakeZombies(n) {
   return Array.from({ length: n }, (_, i) => ({
     pid: 90000 + i,

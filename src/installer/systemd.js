@@ -6,6 +6,7 @@ const os = require('os');
 const { execFileSync } = require('child_process');
 const { LOCAL_BIN_HINT, quoteSystemdArg, resolveZcleanBin } = require('./bin-path');
 const { writeFileAtomic } = require('./settings-write');
+const { systemdShowArgs } = require('../systemd-contract');
 
 const SYSTEMD_USER_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
 const SERVICE_NAME = 'zclean';
@@ -109,7 +110,7 @@ function installSystemd(options = {}) {
   try {
     loadedCommand = run(
       'systemctl',
-      ['--user', 'show', `${SERVICE_NAME}.service`, '--property=ExecStart', '--value'],
+      systemdShowArgs(`${SERVICE_NAME}.service`),
       systemctlOptions()
     );
   } catch {}

@@ -47,7 +47,7 @@ it('does not follow a quarantined child replaced by an external directory symlin
 
     assert.equal(swapped, true);
     assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'must-survive');
-    assert.equal(result.failed.length, 0);
+    assert.equal(result.failed.length, 1);
   } finally {
     cleanupFixture(fixture);
   }
@@ -57,3 +57,44 @@ function writeFile(file, content) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content, 'utf8');
 }
+
+it('does not remove a directory replacing a staged cache child', () => {
+  const fixture = makeFixture();
+  try {
+    const workspace = path.join(fixture.root, 'workspace');
+    const cachePath = path.join(workspace, '.turbo');
+    const movedCachePath = path.join(fixture.root, 'moved-cache-child');
+    const unrelatedPath = path.join(fixture.root, 'unrelated-data');
+    writeFile(path.join(cachePath, 'nested', 'state.json'), 'cache-data');
+    writeFile(path.join(unrelatedPath, 'important.txt'), 'must-survive');
+    const candidates = scanCacheTargets(workspace);
+    let stagedPath = null;
+    let swapped = false;
+
+    const result = cleanCacheTargets(candidates, {
+      renameSync(source, destination) {
+        fs.renameSync(source, destination);
+        if (path.basename(path.dirname(destination)).startsWith('.zclean-delete-')) {
+          stagedPath = destination;
+        }
+      },
+      lstatSync(target) {
+        const stat = fs.lstatSync(target);
+        if (!swapped && stagedPath && target === stagedPath && stat.isDirectory()) {
+          fs.renameSync(target, movedCachePath);
+          fs.renameSync(unrelatedPath, target);
+          swapped = true;
+        }
+        return stat;
+      },
+    });
+
+    assert.equal(swapped, true);
+    assert.equal(fs.readFileSync(path.join(stagedPath, 'important.txt'), 'utf8'), 'must-survive');
+    assert.equal(result.deleted.length, 0);
+    assert.equal(result.failed.length, 1);
+    assert.equal(result.failed[0].error.code, 'cache-recovery-failed');
+  } finally {
+    cleanupFixture(fixture);
+  }
+});

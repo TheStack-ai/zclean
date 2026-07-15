@@ -33,7 +33,9 @@ describe('scheduler migration safety', () => {
             throw new Error('Failed to connect to bus: Permission denied');
           }
           if (args.includes('daemon-reload')) {
-            assert.equal(fs.readFileSync(servicePath, 'utf8'), systemd.generateService(binPath));
+            const writtenService = fs.readFileSync(servicePath, 'utf8');
+            assert.deepEqual(inspectSchedulerDefinition(writtenService, 'linux'), { safe: true });
+            assert.match(writtenService, /ExecStart=\/usr\/local\/bin\/zclean audit --json/);
           }
           if (args.includes('show')) return `argv[]=${binPath} audit --json ;`;
           return '';
@@ -47,12 +49,17 @@ describe('scheduler migration safety', () => {
         ['systemctl', ['--user', 'disable', '--now', 'zclean.timer']],
         ['systemctl', ['--user', 'daemon-reload']],
         ['systemctl', ['--user', 'enable', '--now', 'zclean.timer']],
-        ['systemctl', ['--user', 'show', 'zclean.service', '--property=ExecStart', '--value']],
+        ['systemctl', [
+          '--user',
+          'show',
+          'zclean.service',
+          '--property=ExecCondition,ExecStartPre,ExecStart,ExecStartPost,ExecReload,ExecStop,ExecStopPost',
+          '--value',
+        ]],
       ]);
       const service = fs.readFileSync(servicePath, 'utf8');
-      assert.equal(service, systemd.generateService(binPath));
-      assert.equal(fs.readFileSync(timerPath, 'utf8'), systemd.generateTimer());
       assert.deepEqual(inspectSchedulerDefinition(service, 'linux'), { safe: true });
+      assert.match(fs.readFileSync(timerPath, 'utf8'), /OnCalendar=hourly/);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

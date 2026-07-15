@@ -105,9 +105,12 @@ function readWindowsProcess(pid, runtime) {
   if (parsed.invalid) {
     throw new Error('CIM returned invalid process identity data.');
   }
-  const row = parsed.rows.find((item) => Number(readField(item, 'ProcessId')) === safePid);
-  if (!row) {
-    if (parsed.rows.length === 0) return null;
+  if (parsed.rows.length === 0) return null;
+  if (parsed.rows.length !== 1) {
+    throw new Error('CIM returned incomplete process identity data.');
+  }
+  const row = parsed.rows[0];
+  if (Number(readField(row, 'ProcessId')) !== safePid) {
     throw new Error('CIM returned incomplete process identity data.');
   }
 
@@ -135,9 +138,8 @@ function windowsProcessExists(pid, runtime) {
     const parsed = parseJsonRowsResult(String(output || ''));
     if (parsed.invalid) return null;
     if (parsed.rows.length === 0) return false;
-    return parsed.rows.some((row) => Number(readField(row, 'ProcessId')) === safePid)
-      ? true
-      : null;
+    if (parsed.rows.length !== 1) return null;
+    return Number(readField(parsed.rows[0], 'ProcessId')) === safePid ? true : null;
   } catch {
     return null;
   }

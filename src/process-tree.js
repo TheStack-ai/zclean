@@ -3,7 +3,7 @@
 const { execSync } = require('child_process');
 const os = require('os');
 const { parseElapsed } = require('./process-elapsed');
-const { providerDiagnostic } = require('./process-diagnostic');
+const { readPSProcesses } = require('./process-ps');
 const { readCIMProcesses, readWMICProcesses } = require('./windows-processes');
 
 const platform = os.platform();
@@ -172,83 +172,11 @@ class ProcessTree {
    */
   static fromPS(options = {}) {
     const runtime = runtimeOptions(options);
-    let output;
-    try {
-      // LC_ALL=C forces English date output in lstart= regardless of system locale
-      output = runtime.execSync('LC_ALL=C ps -eo pid=,ppid=,rss=,etime=,lstart=,command=', {
-        encoding: 'utf-8',
-        timeout: 10000,
-        maxBuffer: 10 * 1024 * 1024,
-      });
-    } catch (err) {
-      return new ProcessTree([], {
-        platform: runtime.platform,
-        errors: [providerDiagnostic('ps', 'process-enumeration-provider-failed', err)],
-      });
-    }
-
-    const lines = String(output || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-    if (lines.length === 0) {
-      return new ProcessTree([], {
-        platform: runtime.platform,
-        errors: [providerDiagnostic(
-          'ps',
-          'process-enumeration-provider-empty',
-          'ps returned no process rows.'
-        )],
-      });
-    }
-
-    const processes = [];
-    const myPid = runtime.currentPid;
-    let unparsedLineCount = 0;
-
-    for (const trimmed of lines) {
-
-      // Format: PID PPID RSS ELAPSED [DAY ]MON DD HH:MM:SS YEAR COMMAND
-      // Example: "  123  456  2048  01:23:45  Mon Jan  1 12:00:00 2024  node server.js"
-      const match = trimmed.match(
-        /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d:.-]+)\s+\w+\s+(\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.+)$/
-      );
-      if (!match) {
-        unparsedLineCount += 1;
-        continue;
-      }
-
-      const pid = parseInt(match[1], 10);
-      if (pid === myPid) continue;
-
-      const ppid = parseInt(match[2], 10);
-      const rssKB = parseInt(match[3], 10);
-      const elapsed = match[4];
-      const lstart = match[5];
-      const cmd = match[6];
-
-      let startTime = null;
-      try { startTime = new Date(lstart).toISOString(); } catch { /* ignore */ }
-
-      processes.push({
-        pid,
-        ppid,
-        cmd,
-        mem: rssKB * 1024, // KB → bytes
-        age: parseElapsed(elapsed),
-        startTime,
-      });
-    }
-
-    const errors = unparsedLineCount > 0
-      ? [providerDiagnostic(
-        'ps',
-        'process-enumeration-provider-partial',
-        `ps returned ${unparsedLineCount} unparsed process row${unparsedLineCount === 1 ? '' : 's'} out of ${lines.length}.`
-      )]
-      : [];
-
-    return new ProcessTree(processes, { platform: runtime.platform, errors });
+    const result = readPSProcesses(runtime);
+    return new ProcessTree(result.processes, {
+      platform: runtime.platform,
+      errors: result.errors,
+    });
   }
 
   static fromWMIC(options = {}) {

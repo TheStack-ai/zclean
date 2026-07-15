@@ -27,7 +27,7 @@ function extractSchedulerArgs(value, platform) {
 
   if (platform === 'linux') {
     const actions = [...value.matchAll(
-      /^(Exec(?:Condition|StartPre|Start|StartPost|Reload|Stop|StopPost))=(.*)$/gm
+      /^[ \t]*(Exec(?:Condition|StartPre|Start|StartPost|Reload|Stop|StopPost))=(.*)$/gm
     )];
     if (actions.length > 0) {
       return actions.length === 1 && actions[0][1] === 'ExecStart'

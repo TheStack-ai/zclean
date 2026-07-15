@@ -165,6 +165,16 @@ describe('doctor scheduler action cardinality', () => {
     assert.equal(result.safe, false);
   });
 
+  it('rejects an indented additional systemd action', () => {
+    const definition = [
+      '[Service]',
+      'ExecStart=/usr/local/bin/zclean audit --json',
+      '  ExecStartPost=/usr/local/bin/zclean -y',
+    ].join('\n');
+
+    assert.equal(inspectSchedulerDefinition(definition, 'linux').safe, false);
+  });
+
   it('rejects loaded systemd state with two report-only actions', () => {
     const definition = [
       'argv[]=/usr/local/bin/zclean audit --json ;',

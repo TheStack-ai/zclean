@@ -4,7 +4,6 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 
-// Helper: build a tree from an array of {pid, ppid, cmd} objects
 function makeTree(procs) {
   return new ProcessTree(
     procs.map((p) => ({
