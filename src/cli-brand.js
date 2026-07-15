@@ -37,7 +37,7 @@ function renderPostinstall({ version }) {
   ].join('\n');
 }
 
-function renderInit({ version, steps, warningCount }) {
+function renderInit({ version, steps, warningCount, errorCount }) {
   const lines = [
     '',
     c('gray', '     .   +  .'),
@@ -55,14 +55,18 @@ function renderInit({ version, steps, warningCount }) {
     lines.push(renderStep(step));
   }
 
-  const ready = warningCount === 0;
+  const warnings = warningCount ?? steps.filter((step) => step.state === 'WARNING').length;
+  const errors = errorCount ?? steps.filter((step) => step.state === 'ERROR').length;
+  const ready = warnings === 0 && errors === 0;
   lines.push(
     c('gray', `  |${''.padEnd(FRAME_WIDTH)}|`),
     c('gray', `  +${''.padEnd(FRAME_WIDTH, '-')}+`),
     '',
-    ready
-      ? c('green', '  SYSTEM READY')
-      : c('yellow', `  SETUP COMPLETED WITH ${warningCount} WARNING${warningCount === 1 ? '' : 'S'}`),
+    errors > 0
+      ? c('red', `  SETUP FAILED WITH ${errors} ERROR${errors === 1 ? '' : 'S'}`)
+      : ready
+        ? c('green', '  SYSTEM READY')
+        : c('yellow', `  SETUP COMPLETED WITH ${warnings} WARNING${warnings === 1 ? '' : 'S'}`),
     '',
     `  ${c('gray', 'Inspect runtime leftovers')}   ${c('cyan', 'zclean audit')}`,
     `  ${c('gray', 'Verify this installation')}    ${c('cyan', 'zclean doctor')}`,
@@ -77,7 +81,13 @@ function renderInit({ version, steps, warningCount }) {
 function renderStep(step) {
   const state = String(step.state).padEnd(10);
   const label = String(step.label).padEnd(14);
-  const tone = step.state === 'WARNING' ? 'yellow' : step.state === 'EXISTS' ? 'gray' : 'green';
+  const tone = step.state === 'ERROR'
+    ? 'red'
+    : step.state === 'WARNING'
+      ? 'yellow'
+      : ['EXISTS', 'OPTIONAL', 'SKIPPED'].includes(step.state)
+        ? 'gray'
+        : 'green';
   const statusPrefix = `  ${step.index}  ${label} `;
   const statusSpacing = ''.padEnd(FRAME_WIDTH - statusPrefix.length - state.length);
   const detail = padToWidth(`      ${fitDetail(step.detail)}`, FRAME_WIDTH);

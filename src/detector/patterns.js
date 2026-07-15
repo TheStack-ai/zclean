@@ -38,8 +38,10 @@ function buildAiDirRegex(customDirs) {
     ? [...AI_TOOL_DIRS, ...customDirs]
     : AI_TOOL_DIRS;
 
-  const escaped = allDirs.map((d) => d.replace(/\./g, '\\.'));
-  return new RegExp(`(?:${escaped.join('|')})[/\\\\]`);
+  const escaped = allDirs
+    .filter((directory) => typeof directory === 'string' && directory.trim())
+    .map((directory) => directory.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  return new RegExp(`(?:^|[\\s/\\\\\"'=])(?:${escaped.join('|')})(?:[/\\\\]|$)`, 'i');
 }
 
 /** Default regex (no custom dirs) */

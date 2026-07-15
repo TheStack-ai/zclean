@@ -1,6 +1,14 @@
 'use strict';
 
-function buildRecommendations({ zombieCount, errors, warnings, commandName }) {
+function buildRecommendations({
+  zombieCount,
+  eligibleCount = 0,
+  blockedCount = 0,
+  enumerationComplete = true,
+  errors,
+  warnings,
+  commandName,
+}) {
   if (errors.length > 0) {
     return [
       'Run `zclean doctor` before cleaning; process enumeration is incomplete.',
@@ -8,11 +16,14 @@ function buildRecommendations({ zombieCount, errors, warnings, commandName }) {
     ];
   }
 
-  const recommendations = [
-    'Review candidates before cleanup. Manual cleanup still requires `zclean --yes`.',
-  ];
+  const recommendations = [];
   if (zombieCount > 0) {
-    recommendations.push('Run `zclean --yes` only after confirming these are leftover AI coding runtimes.');
+    recommendations.push('Review the classified runtime candidates and their evidence before cleanup.');
+    if (enumerationComplete && eligibleCount > 0) {
+      recommendations.push(`Run \`zclean --yes\` only for the ${eligibleCount} confirmed eligible candidate${eligibleCount === 1 ? '' : 's'}.`);
+    } else {
+      recommendations.push(`No cleanup command is recommended; ${blockedCount || zombieCount} candidate${(blockedCount || zombieCount) === 1 ? '' : 's'} remain blocked by safety gates.`);
+    }
   } else {
     recommendations.push('No AI runtime leftovers are currently visible.');
   }
@@ -23,7 +34,15 @@ function buildRecommendations({ zombieCount, errors, warnings, commandName }) {
   return recommendations;
 }
 
-function buildNextActions({ zombieCount, errors, warnings, commandName }) {
+function buildNextActions({
+  zombieCount,
+  eligibleCount = 0,
+  blockedCount = 0,
+  enumerationComplete = true,
+  errors,
+  warnings,
+  commandName,
+}) {
   if (errors.length > 0) {
     return [
       {
@@ -49,12 +68,22 @@ function buildNextActions({ zombieCount, errors, warnings, commandName }) {
       command: null,
       description: 'Review topCandidates, largestCandidate, and oldestCandidate before cleanup.',
     });
-    actions.push({
-      id: 'manual-cleanup-requires-yes',
-      priority: 'high',
-      command: 'zclean --yes',
-      description: 'Cleanup remains opt-in and requires an explicit --yes run after review.',
-    });
+    if (enumerationComplete && eligibleCount > 0) {
+      actions.push({
+        id: 'manual-cleanup-requires-yes',
+        priority: 'high',
+        command: 'zclean --yes',
+        description: `Cleanup remains opt-in for ${eligibleCount} eligible candidate${eligibleCount === 1 ? '' : 's'} and requires an explicit --yes run.`,
+      });
+    }
+    if (blockedCount > 0) {
+      actions.push({
+        id: 'review-blocked-candidates',
+        priority: 'normal',
+        command: null,
+        description: `${blockedCount} candidate${blockedCount === 1 ? '' : 's'} remain blocked by classification safety gates.`,
+      });
+    }
   } else {
     actions.push({
       id: 'monitor-runtime-hygiene',

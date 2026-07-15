@@ -1,12 +1,14 @@
 # zclean
 
-**Claude Code, Codex, Cursor, Windsurf, MCP 서버, agent browser, 로컬 개발 캐시를 위한 AI 코딩 런타임 위생 CLI입니다.**
+**Codex, Claude Code, Cursor, Windsurf, MCP 서버, agent browser, 테스트 서버, 로컬 개발 캐시를 위한 AI 코딩 런타임 위생 CLI입니다.**
 
 [English](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
 ## zclean이 해결하는 문제
 
 AI 코딩 도구는 작업 중 많은 임시 런타임을 만듭니다.
+
+Codex, Claude Code, Cursor, Windsurf, MCP 서버, agent browser, 로컬 테스트 서버에서 같은 방식으로 동작합니다. Claude Code는 지원 대상이지만 필수는 아닙니다.
 
 - MCP 서버
 - Claude Code sub-agent
@@ -22,7 +24,7 @@ AI 코딩 도구는 작업 중 많은 임시 런타임을 만듭니다.
 1. **AI 런타임 zombie process 정리**
    - Claude Code, Codex, Cursor/Windsurf 계열 agent, MCP server, agent browser 잔재를 탐지합니다.
    - 기본은 dry-run입니다.
-   - 실제 kill은 `--yes`가 있어야 합니다.
+   - `classification: "confirmed-stale"`이면서 `cleanupEligible: true`인 후보만 `--yes`로 종료합니다.
 
 2. **안전한 workspace cache 정리**
    - `.next/cache`
@@ -83,13 +85,17 @@ zclean report
 zclean init
 ```
 
-`zclean init`은 Claude Code session hook과 OS scheduler를 설치합니다. dry-run 결과를 확인한 후에만 실행하세요. 상주 daemon을 설치하지는 않습니다.
+`zclean init`은 zclean 설정을 생성하거나 기존 설정을 보존하고, 네이티브 1시간 주기 읽기 전용 `audit --json` 스케줄러만 설치합니다. dry-run 결과를 확인한 후에만 실행하세요. 상주 daemon은 설치하지 않습니다.
+
+v0.3.3에서 업그레이드할 때는 zclean이 과거에 작성한, 정확히 일치하는 안전하지 않은 v0.3.3 Claude Code `Stop` hook만 제거할 수 있습니다. 대체 hook은 설치하지 않습니다. zclean hook이 없는 상태가 정상이며 완전히 지원됩니다.
+
+네이티브 스케줄러는 1시간마다 읽기 전용 `audit --json`만 실행합니다. `--yes`를 전달하거나 자동 정리를 수행하지 않습니다. `zclean init`은 provider hook을 설치하지 않습니다. cache, rescue, worktree 또는 별도 MCP maintenance를 자동 예약하지 않습니다.
 
 ## 자주 쓰는 명령
 
 ```bash
 zclean                  # zombie process dry-run scan
-zclean --yes            # 검증된 zombie process 정리
+zclean --yes            # cleanupEligible confirmed-stale 후보만 정리
 zclean report           # 읽기 전용 hygiene report
 zclean report --json    # 자동화용 JSON report
 zclean cache            # workspace cache dry-run scan
@@ -104,28 +110,32 @@ zclean doctor --json    # 설치/탐지/스케줄러 상태 점검
 
 패턴을 계속 사용하려면 `~/.zclean/config.json`의 `customPatterns` 배열에 문자열을 추가하세요. 패턴은 정규식이 아닌 대소문자 무시 literal 문자열이며 3–80자의 출력 가능한 문자만 허용됩니다. `node`, `node /`, `ode` 같은 일반 runtime 이름과 부분 문자열은 거부되고, orphan이면서 `maxAge`(기본 24시간)를 넘은 process만 후보가 됩니다. 잘못되거나 0인 기간은 안전한 기본값 24시간으로 돌아갑니다. whitelist, PID 재검증, dry-run, `--yes` 안전장치는 그대로 유지됩니다.
 
+후보 JSON에는 `provider`, `classification`, `confidence`, 정제된 `evidence`, `cleanupEligible`, `blockedReasons`가 포함됩니다. `classification: "confirmed-stale"`이면서 `cleanupEligible: true`인 후보만 `zclean --yes`로 종료하며, suspected 또는 unattributed 후보는 report-only로 남습니다.
+
 다른 workspace cache를 확인하려면:
 
 ```bash
 zclean cache --path=/path/to/project
 ```
 
+`zclean cache`는 파일시스템 루트, 사용자 HOME, symbolic link 또는 junction root를 거부합니다. `--json`은 blocked JSON report를 출력하고 0이 아닌 종료 코드로 끝납니다.
+
 ## 안전 설계
 
 - 기본은 dry-run입니다.
-- 실제 정리는 `--yes`가 있어야 합니다.
+- runtime 정리는 `cleanupEligible`인 `confirmed-stale` 후보에 `--yes`가 있을 때만 수행합니다.
 - 살아 있는 parent process가 있으면 건드리지 않습니다.
 - tmux, screen, PM2, Forever, Docker, VS Code child process는 보호합니다.
 - kill 직전 PID identity를 다시 확인합니다.
 - 프로세스 탐지 실패는 “깨끗함”으로 숨기지 않고 오류로 표시합니다.
-- JSON 출력은 raw command와 로컬 절대경로 노출을 피합니다.
+- 공개 JSON에는 raw process command line과 로컬 파일시스템 경로를 포함하지 않습니다.
 
 ## 지원 플랫폼
 
 | 플랫폼 | 상태 |
 |--------|------|
-| macOS | launchd scheduler, Claude Code hook, dry-run/cleanup |
-| Linux | systemd user timer, Claude Code hook, dry-run/cleanup |
+| macOS | launchd scheduler, provider-neutral dry-run/cleanup |
+| Linux | systemd user timer, provider-neutral dry-run/cleanup |
 | Windows | Task Scheduler installer, 비파괴 CI coverage, `zclean doctor` 권장 |
 
 ## 제거

@@ -1,16 +1,24 @@
 'use strict';
 
+const {
+  sanitizePatternName,
+  toPublicRuntimeMetadata,
+} = require('./runtime-classifier');
+
 function buildCandidateReview(item) {
   const memory = item.mem || 0;
   const age = item.age || 0;
   const riskScore = Math.min(100, 30 + Math.floor(memory / (100 * 1024 * 1024)) * 5 + Math.floor(age / 3600000));
+  const pattern = sanitizePatternName(item.pattern || item.name);
+  const runtime = toPublicRuntimeMetadata(item);
   return {
     pid: item.pid,
-    name: item.name || item.pattern || 'unknown',
-    pattern: item.pattern || item.name || 'unknown',
+    name: pattern,
+    pattern,
     memoryBytes: memory,
     ageMs: age,
-    reason: item.reason || '',
+    reason: runtime.evidence.join(', '),
+    ...runtime,
     risk: {
       score: riskScore,
       level: riskScore >= 75 ? 'high' : riskScore >= 50 ? 'medium' : 'low',

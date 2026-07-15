@@ -1,12 +1,14 @@
 # zclean
 
-**面向 Claude Code、Codex、Cursor、Windsurf、MCP server、agent browser 和本地开发缓存的 AI 编程运行时清理 CLI。**
+**面向 Codex、Claude Code、Cursor、Windsurf、MCP server、agent browser、测试服务器和本地开发缓存的 AI 编程运行时清理 CLI。**
 
 [English](README.md) | [한국어](README.ko.md) | [中文](README.zh.md)
 
 ## zclean 解决什么问题
 
 AI 编程工具在工作时会启动很多临时运行时：
+
+它以相同方式支持 Codex、Claude Code、Cursor、Windsurf、MCP server、agent browser 和本地测试服务器。支持 Claude Code，但它从来不是必需项。
 
 - MCP server
 - Claude Code sub-agent
@@ -22,7 +24,7 @@ AI 编程工具在工作时会启动很多临时运行时：
 1. **清理 AI 运行时 zombie process**
    - 覆盖 Claude Code、Codex、Cursor/Windsurf 类 agent、MCP server、agent browser 等遗留进程。
    - 默认只做 dry-run。
-   - 只有传入 `--yes` 才会真正清理。
+   - 只有 `classification: "confirmed-stale"` 且 `cleanupEligible: true` 的候选项才会在传入 `--yes` 时被终止。
 
 2. **安全清理 workspace cache**
    - `.next/cache`
@@ -83,13 +85,17 @@ zclean report
 zclean init
 ```
 
-`zclean init` 会安装 Claude Code session hook 和原生 OS scheduler。请先检查 dry-run 结果；它不会安装常驻 daemon。
+`zclean init` 只会创建或保留 zclean 配置，并安装原生的每小时只读 `audit --json` 调度器。请先检查 dry-run 结果；它不会安装常驻 daemon。
+
+从 v0.3.3 升级时，init 只会移除过去由 zclean 写入、完全匹配且不安全的 v0.3.3 Claude Code `Stop` hook。不会安装替代 hook。没有 zclean hook 是健康且完全受支持的状态。
+
+原生调度器每小时只运行只读的 `audit --json`。它不会传入 `--yes`，也不会自动清理。`zclean init` 不会安装 provider hook。它绝不会自动调度 cache、rescue、worktree 或独立的 MCP maintenance。
 
 ## 常用命令
 
 ```bash
 zclean                  # zombie process dry-run scan
-zclean --yes            # 清理已验证的 zombie process
+zclean --yes            # 只清理 cleanupEligible confirmed-stale 候选项
 zclean report           # 只读 hygiene report
 zclean report --json    # 自动化 JSON report
 zclean cache            # workspace cache dry-run scan
@@ -104,28 +110,32 @@ zclean doctor --json    # 检查安装、调度器和进程枚举状态
 
 如需长期使用，请把字符串加入 `~/.zclean/config.json` 的 `customPatterns` 数组。pattern 是忽略大小写的 literal 文本，不是正则表达式；只允许 3–80 个可打印字符，并拒绝 `node`、`node /`、`ode` 等通用 runtime 名称或片段。只有 orphan 且超过 `maxAge`（默认 24 小时）的 process 才会成为候选项；无效或为零的时长会回退到安全的 24 小时默认值。whitelist、PID 再验证、dry-run 和显式 `--yes` 安全限制仍然有效。
 
+候选 JSON 包含 `provider`、`classification`、`confidence`、已清理的 `evidence`、`cleanupEligible` 和 `blockedReasons`。只有同时满足 `classification: "confirmed-stale"` 和 `cleanupEligible: true` 的候选项才会被 `zclean --yes` 终止；suspected 或 unattributed 候选项始终保持 report-only。
+
 扫描另一个 workspace：
 
 ```bash
 zclean cache --path=/path/to/project
 ```
 
+`zclean cache` 会拒绝文件系统根目录、用户 HOME、symbolic link 或 junction root。`--json` 会输出 blocked JSON report，并以非零退出码结束。
+
 ## 安全设计
 
 - 默认 dry-run。
-- 真正清理需要 `--yes`。
+- runtime 清理只针对带有 `--yes` 的 `cleanupEligible` `confirmed-stale` 候选项。
 - 如果父进程仍然存在，不会触碰该进程。
 - 保护 tmux、screen、PM2、Forever、Docker、VS Code child process。
 - kill 前会重新验证 PID identity，降低 PID recycling 风险。
 - 进程枚举失败会报告错误，不会伪装成“系统干净”。
-- JSON 输出避免暴露 raw command 和本地绝对路径。
+- 公开 JSON 不包含 raw process command line 和本地文件系统路径。
 
 ## 平台状态
 
 | 平台 | 状态 |
 |------|------|
-| macOS | launchd scheduler、Claude Code hook、dry-run/cleanup |
-| Linux | systemd user timer、Claude Code hook、dry-run/cleanup |
+| macOS | launchd scheduler、provider-neutral dry-run/cleanup |
+| Linux | systemd user timer、provider-neutral dry-run/cleanup |
 | Windows | Task Scheduler installer、非破坏性 CI coverage，建议运行 `zclean doctor` |
 
 ## 卸载

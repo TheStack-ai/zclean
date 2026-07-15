@@ -4,6 +4,7 @@ const { ProcessTree } = require('./process-tree');
 const { createPatternMatcher, AI_DIR_REGEX, buildAiDirRegex } = require('./detector/patterns');
 const { isWhitelisted } = require('./detector/whitelist');
 const { parseDuration, parseMemory } = require('./config');
+const { classifyRuntimeCandidate } = require('./runtime-classifier');
 
 /**
  * Scan for zombie/orphan processes left by AI coding tools.
@@ -13,7 +14,7 @@ const { parseDuration, parseMemory } = require('./config');
  *
  * @param {object} config — loaded zclean config
  * @param {object} opts — { sessionPid?: number }
- * @returns {Array<{pid, name, cmd, ppid, mem, age, startTime, reason, pattern}>}
+ * @returns {Array<{pid, name, cmd, ppid, mem, age, startTime, reason, pattern, provider, classification, confidence, evidence, cleanupEligible, blockedReasons}>}
  */
 function scan(config, opts = {}) {
   const tree = ProcessTree.build();
@@ -48,10 +49,15 @@ function scan(config, opts = {}) {
       ? tree.hasAncestorMatching(proc.pid, (p) => p.pid === sessionPid)
       : false;
 
+    if (sessionRelated && !orphanResult.isOrphan) {
+      session.excluded++;
+      continue;
+    }
+
     if (pattern.strictOrphan && !orphanResult.isOrphan) continue;
 
     // If pattern requires orphan status and process isn't orphaned, skip
-    if (pattern.orphanOnly && !orphanResult.isOrphan && !sessionRelated) continue;
+    if (pattern.orphanOnly && !orphanResult.isOrphan) continue;
 
     if (sessionPid && !sessionRelated) {
       if (orphanResult.isOrphan) {
@@ -75,6 +81,17 @@ function scan(config, opts = {}) {
     const threshold = evaluateThresholds(pattern, config, proc);
     if (!threshold.passed) continue;
 
+    const runtimeClassification = classifyRuntimeCandidate({
+      pattern,
+      command: proc.cmd,
+      customAiDirs: config.customAiDirs,
+      orphan: orphanResult.isOrphan,
+      orphanReason: orphanResult.reason,
+      age: proc.age,
+      ageGraceMs: threshold.ageGraceMs,
+      startTime: proc.startTime,
+    });
+
     // Build reason string
     const reasons = [];
     reasons.push(`pattern:${pattern.name}`);
@@ -94,6 +111,7 @@ function scan(config, opts = {}) {
       reason: reasons.join(', '),
       pattern: pattern.name,
       matchLiteral: pattern.literal || null,
+      ...runtimeClassification,
     });
   }
 
@@ -122,12 +140,17 @@ function evaluateThresholds(pattern, config, proc) {
   const ageExceeded = Boolean(maxAge && proc.age >= maxAge);
   const memoryExceeded = Boolean(memoryThreshold && proc.mem >= memoryThreshold);
 
-  if (maxAge && memoryThreshold) {
-    return { passed: ageExceeded || memoryExceeded, ageExceeded, memoryExceeded };
-  }
-  if (maxAge) return { passed: ageExceeded, ageExceeded, memoryExceeded: false };
-  if (memoryThreshold) return { passed: memoryExceeded, ageExceeded: false, memoryExceeded };
-  return { passed: true, ageExceeded: false, memoryExceeded: false };
+  let passed = true;
+  if (maxAge && memoryThreshold) passed = ageExceeded || memoryExceeded;
+  else if (maxAge) passed = ageExceeded;
+  else if (memoryThreshold) passed = memoryExceeded;
+
+  return {
+    passed,
+    ageExceeded,
+    memoryExceeded,
+    ageGraceMs: maxAge,
+  };
 }
 
 function getPatternMaxAge(pattern, config) {

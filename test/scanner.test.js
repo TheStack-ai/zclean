@@ -4,6 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree } = require('../src/process-tree');
 const { scan } = require('../src/scanner');
+const { classifyRuntimeCandidate } = require('../src/runtime-classifier');
 
 // Helper: build a tree from process list and monkey-patch ProcessTree.build
 function withMockedTree(procs, fn, diagnostics = {}) {
@@ -57,12 +58,25 @@ describe('scan()', () => {
 
   it('detects orphaned MCP server', () => {
     const procs = [
-      { pid: 1000, ppid: 1, cmd: 'node /path/to/mcp-server/index.js', age: 7200000, mem: 1024 },
+      {
+        pid: 1000,
+        ppid: 1,
+        cmd: 'node /path/to/mcp-server/index.js',
+        age: 7200000,
+        mem: 1024,
+        startTime: '2024-01-01T00:00:00.000Z',
+      },
     ];
     const result = withMockedTree(procs, () => scan(baseConfig));
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'mcp-server');
     assert.ok(result[0].reason.includes('orphan'));
+    assert.equal(result[0].provider, 'mcp');
+    assert.equal(result[0].classification, 'confirmed-stale');
+    assert.deepEqual(result[0].confidence, { score: 100, level: 'high' });
+    assert.ok(result[0].evidence.includes('start-time:verified'));
+    assert.equal(result[0].cleanupEligible, true);
+    assert.deepEqual(result[0].blockedReasons, []);
   });
 
   it('skips non-orphan process for orphanOnly pattern', () => {
@@ -137,6 +151,10 @@ describe('scan()', () => {
     assert.equal(result[0].name, 'custom:my-agent-worker');
     assert.match(result[0].reason, /orphan/);
     assert.match(result[0].reason, /age-exceeded/);
+    assert.equal(result[0].provider, 'custom');
+    assert.equal(result[0].classification, 'unattributed');
+    assert.equal(result[0].cleanupEligible, false);
+    assert.ok(result[0].blockedReasons.includes('provider-pattern-not-strong'));
   });
 
   it('waits for maxAge before flagging a custom orphan', () => {
@@ -225,6 +243,9 @@ describe('scan()', () => {
     const result = withMockedTree(procs, () => scan(baseConfig));
     assert.equal(result.length, 1);
     assert.equal(result[0].name, 'claude-subagent');
+    assert.equal(result[0].classification, 'suspected');
+    assert.equal(result[0].cleanupEligible, false);
+    assert.ok(result[0].blockedReasons.includes('age-grace-not-met'));
   });
 
   it('returns empty array when no zombies found', () => {
@@ -236,7 +257,7 @@ describe('scan()', () => {
     assert.equal(result.length, 0);
   });
 
-  it('sessionPid limits results to processes with proven session ancestry', () => {
+  it('sessionPid never turns a live session descendant into a candidate', () => {
     const procs = [
       { pid: 500, ppid: 50, cmd: 'claude' },
       { pid: 501, ppid: 500, cmd: 'bash' },
@@ -244,11 +265,65 @@ describe('scan()', () => {
       { pid: 3002, ppid: 1, cmd: 'claude --print "unrelated orphan"', age: 60000, mem: 2048 },
     ];
     const result = withMockedTree(procs, () => scan(baseConfig, { sessionPid: 500 }));
-    assert.deepEqual(result.map((proc) => proc.pid), [3001]);
-    assert.match(result[0].reason, /session-pid:500/);
+    assert.equal(result.length, 0);
     assert.equal(result.session.pid, 500);
+    assert.equal(result.session.matched, 0);
+    assert.equal(result.session.excluded, 1);
     assert.equal(result.session.unattributed, 1);
     assert.ok(result.warnings.some((warning) => warning.code === 'session-attribution-gap'));
+  });
+
+  it('uses stronger provider and age gates for generic and custom runtimes', () => {
+    const startTime = '2024-01-01T00:00:00.000Z';
+    const genericEarly = classifyRuntimeCandidate({
+      pattern: 'tsx',
+      command: 'tsx .claude/tools/server.ts',
+      orphan: true,
+      orphanReason: 'parent-gone',
+      age: 23 * 60 * 60 * 1000,
+      startTime,
+    });
+    const genericReady = classifyRuntimeCandidate({
+      pattern: 'tsx',
+      command: 'tsx .claude/tools/server.ts',
+      orphan: true,
+      orphanReason: 'parent-gone',
+      age: 25 * 60 * 60 * 1000,
+      startTime,
+    });
+    const customUnattributed = classifyRuntimeCandidate({
+      pattern: 'custom:my-agent-worker',
+      command: 'node my-agent-worker.js',
+      orphan: true,
+      orphanReason: 'parent-gone',
+      age: 25 * 60 * 60 * 1000,
+      startTime,
+    });
+
+    assert.equal(genericEarly.cleanupEligible, false);
+    assert.ok(genericEarly.blockedReasons.includes('age-grace-not-met'));
+    assert.equal(genericReady.provider, 'claude');
+    assert.equal(genericReady.classification, 'confirmed-stale');
+    assert.equal(genericReady.cleanupEligible, true);
+    assert.equal(customUnattributed.classification, 'unattributed');
+    assert.equal(customUnattributed.cleanupEligible, false);
+  });
+
+  it('does not treat a custom directory fragment as provider evidence', () => {
+    const result = classifyRuntimeCandidate({
+      pattern: 'tsx',
+      command: 'tsx /home/user/main/server.ts',
+      customAiDirs: ['ain'],
+      orphan: true,
+      orphanReason: 'parent-gone',
+      age: 48 * 60 * 60 * 1000,
+      startTime: '2026-07-14T00:00:00.000Z',
+    });
+
+    assert.equal(result.provider, 'unknown');
+    assert.equal(result.classification, 'unattributed');
+    assert.equal(result.cleanupEligible, false);
+    assert.ok(result.blockedReasons.includes('provider-pattern-not-strong'));
   });
 
   it('propagates process enumeration failures as scan diagnostics', () => {

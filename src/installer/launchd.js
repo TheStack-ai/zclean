@@ -38,7 +38,7 @@ function resolveNvmNodeBin() {
  * Generate the launchd plist XML.
  */
 function generatePlist(binPath) {
-  const programArgs = [binPath, '--yes']
+  const programArgs = [binPath, 'audit', '--json']
     .map((arg) => `      <string>${escapeXml(arg)}</string>`)
     .join('\n');
 

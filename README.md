@@ -7,7 +7,7 @@ zclean
 AI coding runtime hygiene
 </pre>
 
-**AI coding runtime hygiene for Claude Code, Codex, Cursor, Windsurf, MCP servers, agent browsers, and local dev caches.**
+**AI coding runtime hygiene for Codex, Claude Code, Cursor, Windsurf, MCP servers, agent browsers, test servers, and local dev caches.**
 
 [![npm version](https://img.shields.io/npm/v/z-clean?style=flat-square&color=blue)](https://www.npmjs.com/package/z-clean)
 [![npm downloads](https://img.shields.io/npm/dm/z-clean?style=flat-square&color=brightgreen)](https://www.npmjs.com/package/z-clean)
@@ -15,7 +15,7 @@ AI coding runtime hygiene
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js&logoColor=white)](#)
 [![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey?style=flat-square)](#platform-status)
 [![Zero Dependencies](https://img.shields.io/badge/dependencies-0-blue?style=flat-square)](#)
-[![Tests](https://img.shields.io/badge/tests-142%20passing-brightgreen?style=flat-square)](#)
+[![Tests](https://img.shields.io/badge/tests-209%20passing-brightgreen?style=flat-square)](#)
 [![GitHub stars](https://img.shields.io/github/stars/TheStack-ai/zclean?style=flat-square)](https://github.com/TheStack-ai/zclean)
 [![Mentioned in Awesome Claude Code Toolkit](https://awesome.re/mentioned-badge.svg)](https://github.com/rohitg00/awesome-claude-code-toolkit)
 
@@ -32,6 +32,8 @@ AI coding runtime hygiene
 ## What zclean is
 
 `zclean` is a zero-dependency CLI that keeps AI coding sessions from leaving runtime mess behind.
+
+It works across Codex, Claude Code, Cursor, Windsurf, MCP servers, agent browsers, and local test servers. Claude Code is supported, but never required.
 
 It helps with two local hygiene problems:
 
@@ -86,7 +88,11 @@ Optional automation:
 zclean init
 ```
 
-`zclean init` installs the Claude Code session hook and the native OS scheduler. Run it only after reviewing the dry-run output. It does not install a persistent daemon.
+`zclean init` only creates or preserves the zclean config and installs the native hourly read-only `audit --json` scheduler. Run it only after reviewing the dry-run output. It does not install a persistent daemon.
+
+For users upgrading from v0.3.3, init may remove only the exact unsafe v0.3.3 Claude Code `Stop` hook previously written by zclean. It installs no replacement hook. Having no zclean hook is healthy and fully supported.
+
+The native scheduler runs only read-only `audit --json` once per hour. It never passes `--yes` or performs automatic cleanup. `zclean init` does not install provider hooks. It never auto-schedules cache, rescue, worktree, or standalone MCP maintenance.
 
 ## Why developers use it
 
@@ -106,7 +112,7 @@ When an agent crashes, a terminal closes, or a session ends abruptly, those chil
 | Command | What it does |
 |---------|--------------|
 | `zclean` | Dry-run scan for AI runtime zombie processes |
-| `zclean --yes` | Kill verified zombie runtime processes |
+| `zclean --yes` | Kill only `cleanupEligible` `confirmed-stale` runtime candidates |
 | `zclean report` | Human-readable AI runtime hygiene report |
 | `zclean report --json` | Machine-readable report for CI, local dashboards, or agents |
 | `zclean audit` | Alias for `zclean report` |
@@ -120,13 +126,13 @@ When an agent crashes, a terminal closes, or a session ends abruptly, those chil
 | `zclean protect add <entry>` | Add a protected process pattern |
 | `zclean protect remove <entry>` | Remove a protected process pattern |
 | `zclean protect remove --index=N` | Remove a protected entry by index |
-| `zclean doctor` | Check hook, scheduler, config, and process enumeration health |
+| `zclean doctor` | Check config, provider-neutral setup, scheduler, and process enumeration health |
 | `zclean doctor --json` | Structured health check output |
-| `zclean init` | Install Claude Code hook and OS scheduler |
+| `zclean init` | Create/preserve config and install the hourly read-only audit scheduler |
 | `zclean status` | Show current zombie status and recent cleanup |
 | `zclean logs` | Show detailed cleanup log |
 | `zclean config` | Show current configuration |
-| `zclean uninstall` | Remove hooks and schedulers |
+| `zclean uninstall` | Remove the scheduler and an exact legacy zclean hook, if present |
 
 ## Runtime cleanup
 
@@ -141,14 +147,21 @@ Example output:
 ```text
 zclean - scanning for zombie processes...
 
-Found 12 zombie processes:
+Found 3 stale-runtime candidates:
 
-  PID 26413  node      367 MB  18h  claude mcp-server
-  PID 62830  chrome    200 MB   3h  agent-browser
-  PID 26221  npm       142 MB   2d  npm exec task-master-ai
+  PID  26413  claude       confirmed-stale   367.0 MB     18h
+    confidence: high (100/100)
+    evidence: runtime-pattern:mcp-server, provider:claude, orphan:parent-gone, age-grace-met, start-time:verified
 
-Total memory reclaimable: 2.4 GB
-Run zclean --yes to clean up these processes.
+  PID  62830  unknown      unattributed      200.0 MB      3h
+    confidence: low (35/100)
+    evidence: runtime-pattern:agent-browser, provider:unknown, orphan:parent-gone
+    blocked: provider-pattern-not-strong, age-grace-not-met
+
+  Candidate memory: 709.0 MB
+  Eligible: 1; blocked: 2; eligible memory: 367.0 MB
+
+  Run zclean --yes to clean up eligible candidates.
 ```
 
 Actual cleanup:
@@ -160,11 +173,13 @@ zclean --yes
 Safety rules:
 
 - Manual scans are dry-run by default.
-- Cleanup requires `--yes`.
+- Only candidates with `classification: "confirmed-stale"` and `cleanupEligible: true` can be killed by `zclean --yes`.
 - Active parent sessions are protected.
 - tmux, screen, PM2, Forever, Docker, and VS Code child processes are skipped.
 - PID identity is re-verified before every kill to avoid PID recycling accidents.
 - Process enumeration failures are reported as errors, not as a fake "clean" state.
+
+Candidate reports expose `provider`, `classification`, `confidence`, sanitized `evidence`, `cleanupEligible`, and `blockedReasons`. Suspected or unattributed entries remain report-only even when `--yes` is present.
 
 ## Workspace cache cleanup
 
@@ -203,6 +218,8 @@ Supported default cache targets:
 
 `zclean cache --json` emits relative paths only. It does not expose absolute local paths and does not remove anything unless `--yes` is present.
 
+`zclean cache` rejects the filesystem root, the user home directory, and symbolic-link or junction roots; `--json` returns a blocked JSON report and exits nonzero.
+
 ## Report and JSON surfaces
 
 `zclean report --json` is designed for scripts, CI notes, local dashboards, and other agents:
@@ -222,7 +239,7 @@ The report includes:
 - safety guardrails
 - recommended next actions
 
-Raw command lines and local filesystem paths are omitted from public JSON surfaces.
+Raw process command lines and local filesystem paths are omitted from public JSON surfaces.
 
 ## History, protection, and doctor
 
@@ -299,15 +316,15 @@ Custom patterns are deliberately restricted: values must contain 3–80 printabl
 
 | Platform | Status |
 |----------|--------|
-| macOS | launchd scheduler, Claude Code hook, dry-run and cleanup paths |
-| Linux | systemd user timer, Claude Code hook, dry-run and cleanup paths |
+| macOS | launchd scheduler, provider-neutral dry-run and cleanup paths |
+| Linux | systemd user timer, provider-neutral dry-run and cleanup paths |
 | Windows | Task Scheduler installer and non-destructive CI coverage; run `zclean doctor` after install to confirm local scheduler and process enumeration health |
 
 ## FAQ
 
-### Will zclean kill my running Claude Code session?
+### Will zclean kill my running AI coding session?
 
-Manual and scheduled scans protect active sessions by checking whether the parent process is alive. The Claude Code `SessionEnd` hook passes `--session-pid` so cleanup is scoped to descendants of the session that just ended.
+Manual and scheduled scans protect active sessions by checking whether the parent process is alive. zclean does not require a provider hook, and init does not install one.
 
 ### Will zclean delete my project files?
 
@@ -319,7 +336,7 @@ No. zclean focuses on AI coding runtime cleanup and safe developer workspace cac
 
 ### Does the scheduler slow my machine?
 
-No. The scheduler runs a single scan and exits. There is no persistent background daemon.
+No. The scheduler runs one read-only `audit --json` report per hour and exits. It never passes `--yes`, so it performs no automatic cleanup; cache and future maintenance commands are not added to the schedule.
 
 ### How do I remove zclean?
 

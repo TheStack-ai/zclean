@@ -48,6 +48,18 @@ describe('buildAiDirRegex', () => {
     assert.ok(regex.test('/home/user/.myai/server.js'));
   });
 
+  it('matches custom directories with either path separator', () => {
+    const regex = buildAiDirRegex(['custom-ai']);
+    assert.ok(regex.test('/home/user/custom-ai/server.js'));
+    assert.ok(regex.test('C:\\Users\\dd\\custom-ai\\server.js'));
+  });
+
+  it('treats every RegExp metacharacter in a custom directory as literal', () => {
+    const directory = '.*+?^${}()|[]\\';
+    const regex = buildAiDirRegex([directory]);
+    assert.ok(regex.test(`/home/user/${directory}/server.js`));
+  });
+
   it('still matches built-in directories with custom dirs', () => {
     const regex = buildAiDirRegex(['.myai']);
     assert.ok(regex.test('/home/user/.claude/foo'));
@@ -57,6 +69,27 @@ describe('buildAiDirRegex', () => {
     const regex = buildAiDirRegex();
     assert.ok(regex.test('/path/.cursor/bar'));
   });
+
+  it('matches custom directories only at path-segment boundaries', () => {
+    const regex = buildAiDirRegex(['ain']);
+
+    assert.equal(regex.test('/home/user/main/server.js'), false);
+    assert.equal(regex.test('/home/user/ain/server.js'), true);
+  });
+});
+
+describe('customAiDirs regex safety', () => {
+  for (const [directory, unrelatedCommand] of [
+    ['.*', 'tsx /home/user/project/server.ts'],
+    ['(', 'tsx /home/user/project/server.ts'],
+    ['a|b', 'tsx /home/user/a/server.ts'],
+    ['[', 'tsx /home/user/project/server.ts'],
+    ['\\', 'tsx /home/user/project/server.ts'],
+  ]) {
+    it(`does not expand scanning scope for literal directory ${JSON.stringify(directory)}`, () => {
+      assert.equal(matchPattern(unrelatedCommand, { customAiDirs: [directory] }), null);
+    });
+  }
 });
 
 describe('matchPattern', () => {

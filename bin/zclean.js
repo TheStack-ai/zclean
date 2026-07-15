@@ -66,6 +66,7 @@ async function main() {
 
   switch (command) {
     case 'init':
+      if (!validateInitArguments()) return;
       return runInit({ config, platform });
 
     case 'status':
@@ -180,20 +181,36 @@ function cmdLogs(config) {
 }
 
 /**
- * uninstall: Remove hooks + scheduler.
+ * uninstall: Remove the scheduler and an exact legacy zclean hook, if present.
  */
 function cmdUninstall() {
-  console.log(bold('\n  zclean uninstall') + c('gray', ' — removing hooks and scheduler...\n'));
+  console.log(bold('\n  zclean uninstall') + c('gray', ' — removing scheduler and legacy zclean integration...\n'));
 
   // Remove hook
   const hookResult = removeHook();
-  console.log(`  Hook: ${hookResult.message}`);
+  console.log(`  Legacy hook: ${hookResult.message}`);
+  if (hookResult.state === 'error') process.exitCode = 1;
 
   // Remove scheduler
   uninstallScheduler(platform);
 
   console.log(c('gray', `\n  Config and logs preserved at ~/.zclean/`));
   console.log(c('gray', `  To fully remove: rm -rf ~/.zclean\n`));
+}
+
+function validateInitArguments() {
+  const unsupportedFlag = Object.keys(flags)[0];
+  if (unsupportedFlag) {
+    console.error(c('red', `  Unsupported option for zclean init: --${unsupportedFlag}`));
+    process.exitCode = 1;
+    return false;
+  }
+  if (positional.length > 1) {
+    console.error(c('red', `  Unsupported argument for zclean init: ${positional[1]}`));
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -220,11 +237,12 @@ function cmdAudit(config, commandName = 'audit') {
 }
 
 function cmdCache() {
-  runCache({
+  const report = runCache({
     root: typeof flags.path === 'string' ? flags.path : process.cwd(),
     yes: Boolean(flags.yes || flags.y),
     json: Boolean(flags.json),
   });
+  process.exitCode = report.exitCode;
 }
 
 function parseSessionPidFlag() {
@@ -260,8 +278,8 @@ function printHelp() {
 
   ${bold('Usage:')}
     zclean                Scan for zombies (dry-run)
-    zclean --yes          Scan and kill zombies
-    zclean init           Install hooks + scheduler
+    zclean --yes          Kill only cleanupEligible confirmed-stale candidates
+    zclean init           Create config + hourly read-only audit scheduler
     zclean status         Show current zombies and last cleanup
     zclean logs           Show recent cleanup history
     zclean history [--json]       Show cleanup history
@@ -269,7 +287,7 @@ function printHelp() {
     zclean protect add <entry>    Add a whitelist entry
     zclean protect remove <entry|--index=N>
                           Remove a whitelist entry
-    zclean uninstall      Remove hooks + scheduler
+    zclean uninstall      Remove scheduler + exact legacy zclean hook
     zclean config         Show current configuration
     zclean doctor [--json]        Check if zclean is properly set up
     zclean report [--json] Show AI runtime hygiene report
@@ -278,7 +296,7 @@ function printHelp() {
     zclean cache --yes     Remove supported workspace cache directories
 
   ${bold('Options:')}
-    --yes, -y             Kill found zombies (default: dry-run)
+    --yes, -y             Kill only cleanupEligible confirmed-stale candidates
     --session-pid=PID     Filter by parent session PID
     --pattern=TEXT        Add a literal orphan-process pattern
     --path=DIR            Workspace path for zclean cache

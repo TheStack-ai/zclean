@@ -12,6 +12,7 @@ const {
 } = require('./audit-candidates');
 const { buildHistory } = require('./audit-history');
 const { buildNextActions, buildRecommendations } = require('./audit-actions');
+const { sanitizeDiagnostics } = require('./process-diagnostic');
 
 function buildAuditReport(...args) {
   const input = normalizeBuildInput(args);
@@ -21,15 +22,29 @@ function buildAuditReport(...args) {
   const stats = input.stats || {};
   const generatedAt = normalizeTime(input.now);
   const commandName = input.commandName || 'audit';
-  const warnings = Array.isArray(input.zombies?.warnings) ? input.zombies.warnings : [];
-  const errors = Array.isArray(input.zombies?.errors) ? input.zombies.errors : [];
+  const warnings = sanitizeDiagnostics(input.zombies?.warnings);
+  const errors = sanitizeDiagnostics(input.zombies?.errors);
   const enumerationComplete = !hasScanErrors(input.zombies || []);
-  const reclaimableBytes = zombies.reduce((sum, item) => sum + (item.mem || 0), 0);
   const candidates = zombies.map((item) => buildCandidateReview(item));
+  const eligibleCandidates = candidates.filter((item) => item.cleanupEligible);
+  const eligibleCount = eligibleCandidates.length;
+  const blockedCount = candidates.length - eligibleCount;
+  const reclaimableBytes = eligibleCandidates.reduce(
+    (sum, item) => sum + (item.memoryBytes || 0),
+    0
+  );
   const topCandidates = sortCandidatesByRisk(candidates);
   const history = buildHistory(logs, stats);
   const status = errors.length > 0 ? 'blocked' : zombies.length > 0 ? 'attention' : 'clean';
-  const recommendationInput = { zombieCount: zombies.length, errors, warnings, commandName };
+  const recommendationInput = {
+    zombieCount: zombies.length,
+    eligibleCount,
+    blockedCount,
+    enumerationComplete,
+    errors,
+    warnings,
+    commandName,
+  };
 
   return {
     schemaVersion: 1,
@@ -41,6 +56,8 @@ function buildAuditReport(...args) {
     summary: {
       status,
       zombieCount: zombies.length,
+      eligibleCount,
+      blockedCount,
       reclaimableBytes,
       warningCount: warnings.length,
       errorCount: errors.length,
@@ -52,6 +69,8 @@ function buildAuditReport(...args) {
     },
     candidates: {
       count: zombies.length,
+      eligibleCount,
+      blockedCount,
       memoryReclaimable: reclaimableBytes,
       byPattern: groupCandidatesByPattern(candidates),
       largestCandidate: pickCandidate(candidates, 'memoryBytes'),
@@ -62,7 +81,9 @@ function buildAuditReport(...args) {
     },
     safety: buildSafety(config),
     proGradeReview: {
-      safeToClean: enumerationComplete && zombies.length > 0,
+      safeToClean: enumerationComplete && eligibleCount > 0,
+      eligibleCount,
+      blockedCount,
       candidates,
       topCandidates,
       guardrails: buildGuardrails(config),

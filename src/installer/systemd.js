@@ -21,7 +21,7 @@ Documentation=https://github.com/TheStack-ai/zclean
 
 [Service]
 Type=oneshot
-ExecStart=${quoteSystemdArg(binPath)} --yes
+ExecStart=${quoteSystemdArg(binPath)} audit --json
 Environment=PATH=/usr/local/bin:/usr/bin:/bin:%h/.local/bin
 StandardOutput=append:%h/.zclean/systemd.log
 StandardError=append:%h/.zclean/systemd.log

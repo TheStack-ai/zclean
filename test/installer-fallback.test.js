@@ -28,32 +28,37 @@ describe('installer persistent commands', () => {
     assert.doesNotMatch(demo, /npx(?: --yes)? z-clean init/);
   });
 
-  it('launchd uses a local executable as one ProgramArgument', () => {
+  it('launchd uses a local executable for report-only audits', () => {
     const plist = launchd.generatePlist('/usr/local/bin/zclean');
     assert.match(plist, /<string>\/usr\/local\/bin\/zclean<\/string>/);
-    assert.match(plist, /<string>--yes<\/string>/);
+    assert.match(plist, /<string>audit<\/string>/);
+    assert.match(plist, /<string>--json<\/string>/);
+    assert.doesNotMatch(plist, /--yes/);
     assert.doesNotMatch(plist, /npx/);
   });
 
-  it('Windows Task Scheduler uses argument arrays and quotes local paths with spaces', () => {
+  it('Windows Task Scheduler quotes local paths and runs report-only audits', () => {
     const args = taskScheduler.buildCreateTaskArgs('C:\\Program Files\\nodejs\\zclean.cmd');
     assert.deepEqual(args.slice(0, 5), ['/create', '/TN', taskScheduler.TASK_NAME, '/SC', 'HOURLY']);
     assert.equal(args[5], '/TR');
-    assert.equal(args[6], '"C:\\Program Files\\nodejs\\zclean.cmd" --yes');
+    assert.equal(args[6], '"C:\\Program Files\\nodejs\\zclean.cmd" audit --json');
     assert.equal(args[7], '/F');
+    assert.doesNotMatch(args.join(' '), /--yes/);
     assert.doesNotMatch(args.join(' '), /@thestackai\/zclean/);
   });
 
-  it('systemd uses a local executable and quotes paths with spaces', () => {
+  it('systemd quotes local paths and runs report-only audits', () => {
     const service = systemd.generateService('/home/me/tools/z clean');
-    assert.match(service, /^ExecStart="\/home\/me\/tools\/z clean" --yes$/m);
+    assert.match(service, /^ExecStart="\/home\/me\/tools\/z clean" audit --json$/m);
+    assert.doesNotMatch(service, /--yes/);
     assert.doesNotMatch(service, /npx/);
   });
 
-  it('Claude hook uses a local executable and preserves session PID expansion', () => {
-    const command = hook.buildHookCommand('/usr/local/bin/zclean');
-    assert.equal(command, '/usr/local/bin/zclean --yes --session-pid=$PPID');
-    assert.doesNotMatch(command, /npx/);
+  it('does not expose Claude hook installation behavior', () => {
+    assert.equal(hook.installHook, undefined);
+    assert.equal(hook.buildHookCommand, undefined);
+    assert.equal(typeof hook.inspectLegacyHook, 'function');
+    assert.equal(typeof hook.removeLegacyHook, 'function');
   });
 
   it('does not label a written but inactive scheduler as active', () => {

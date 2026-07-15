@@ -39,23 +39,22 @@ describe('install experience', () => {
     }
   });
 
-  it('renders a precise three-step init status rail', () => {
+  it('renders a precise provider-neutral init status rail', () => {
     assert.ok(fs.existsSync(brandPath), 'expected src/cli-brand.js');
     const { renderInit } = require(brandPath);
     const output = renderInit({
       version: pkg.version,
       steps: [
         { index: '01', label: 'CONFIG', state: 'READY', detail: '~/사용자/프로젝트/설정/config.json' },
-        { index: '02', label: 'CLAUDE HOOK', state: 'INSTALLED', detail: 'SessionEnd cleanup hook' },
-        { index: '03', label: 'SCHEDULER', state: 'ACTIVE', detail: 'Hourly runtime hygiene check' },
+        { index: '02', label: 'SCHEDULER', state: 'ACTIVE', detail: 'Hourly runtime hygiene check' },
       ],
       warningCount: 0,
     });
 
     assert.match(output, /Z \/ CLEAN/);
     assert.match(output, /01\s+CONFIG\s+READY/);
-    assert.match(output, /02\s+CLAUDE HOOK\s+INSTALLED/);
-    assert.match(output, /03\s+SCHEDULER\s+ACTIVE/);
+    assert.match(output, /02\s+SCHEDULER\s+ACTIVE/);
+    assert.doesNotMatch(output, /CLAUDE HOOK|SessionEnd/);
     assert.match(output, /SYSTEM READY/);
     assert.match(output, /zclean audit/);
     assert.match(output, /zclean doctor/);

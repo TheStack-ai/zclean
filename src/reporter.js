@@ -1,6 +1,7 @@
 'use strict';
 
 const { sanitizeTerminalText } = require('./terminal-text');
+const { normalizeProvider, toPublicRuntimeMetadata } = require('./runtime-classifier');
 
 /**
  * ANSI color codes — no external dependencies.
@@ -75,12 +76,17 @@ function getDiagnostics(result) {
 }
 
 function formatDiagnostic(item) {
-  if (typeof item === 'string') return item;
-  const code = item.code ? `${item.code}: ` : '';
-  const providers = Array.isArray(item.providers) && item.providers.length > 0
-    ? ` (providers: ${item.providers.join(', ')})`
+  if (!item || typeof item !== 'object') return 'process scan diagnostic';
+  const code = /^[a-z0-9-]{1,64}$/i.test(String(item.code || ''))
+    ? `${String(item.code).toLowerCase()}: `
     : '';
-  return sanitizeTerminalText(`${code}${item.message || 'process scan diagnostic'}${providers}`);
+  const providerValues = Array.isArray(item.providers)
+    ? item.providers
+    : item.provider ? [item.provider] : [];
+  const providers = providerValues.length > 0
+    ? ` (providers: ${[...new Set(providerValues.map(normalizeProvider))].join(', ')})`
+    : '';
+  return `${code}process scan diagnostic${providers}`;
 }
 
 function reportScanDiagnostics(result) {
@@ -120,19 +126,33 @@ function reportDryRun(zombies) {
     return;
   }
 
-  console.log(bold(`\n  Found ${c('yellow', String(zombies.length))} zombie process${zombies.length === 1 ? '' : 'es'}:\n`));
+  console.log(bold(`\n  Found ${c('yellow', String(zombies.length))} stale-runtime candidate${zombies.length === 1 ? '' : 's'}:\n`));
 
   const totalMem = zombies.reduce((sum, z) => sum + z.mem, 0);
+  const candidates = zombies.map((candidate) => ({
+    candidate,
+    runtime: toPublicRuntimeMetadata(candidate),
+  }));
+  const eligible = candidates.filter((item) => item.runtime.cleanupEligible);
+  const eligibleMem = eligible.reduce((sum, item) => sum + (item.candidate.mem || 0), 0);
 
-  for (const z of zombies) {
-    console.log(`  ${c('red', 'PID')} ${c('bold', String(z.pid).padStart(6))}  ${c('cyan', truncate(z.name, 16).padEnd(16))}  ${c('yellow', formatBytes(z.mem).padStart(8))}  ${c('gray', formatDuration(z.age).padStart(6))}`);
-    console.log(`  ${c('gray', '  cmd:')} ${truncate(sanitizeTerminalText(z.cmd), 72)}`);
-    console.log(`  ${c('gray', '  why:')} ${z.reason}`);
+  for (const { candidate, runtime } of candidates) {
+    console.log(`  ${c('red', 'PID')} ${c('bold', String(candidate.pid).padStart(6))}  ${c('cyan', runtime.provider.padEnd(12))}  ${runtime.classification.padEnd(15)}  ${c('yellow', formatBytes(candidate.mem).padStart(8))}  ${c('gray', formatDuration(candidate.age).padStart(6))}`);
+    console.log(`  ${c('gray', '  confidence:')} ${runtime.confidence.level} (${runtime.confidence.score}/100)`);
+    console.log(`  ${c('gray', '  evidence:')} ${runtime.evidence.join(', ') || 'none'}`);
+    if (!runtime.cleanupEligible) {
+      console.log(`  ${c('gray', '  blocked:')} ${runtime.blockedReasons.join(', ')}`);
+    }
     console.log();
   }
 
-  console.log(c('yellow', `  Total memory reclaimable: ${formatBytes(totalMem)}`));
-  console.log(c('gray', `\n  Run ${c('white', 'zclean --yes')} to clean up these processes.\n`));
+  console.log(c('yellow', `  Candidate memory: ${formatBytes(totalMem)}`));
+  console.log(c('yellow', `  Eligible: ${eligible.length}; blocked: ${candidates.length - eligible.length}; eligible memory: ${formatBytes(eligibleMem)}`));
+  if (eligible.length > 0) {
+    console.log(c('gray', `\n  Run ${c('white', 'zclean --yes')} to clean up eligible candidates.\n`));
+  } else {
+    console.log(c('gray', '\n  No candidates currently pass all cleanup safety gates.\n'));
+  }
 }
 
 /**

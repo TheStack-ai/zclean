@@ -4,9 +4,229 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { DEFAULT_CONFIG } = require('../src/config');
 const { runDoctor } = require('../src/doctor');
+const { generatePlist } = require('../src/installer/launchd');
+const { generateService } = require('../src/installer/systemd');
+const { formatTaskRunCommand } = require('../src/installer/taskscheduler');
 const { cleanupFixture, makeFixture, parseStdoutJson, runCli } = require('./cli-helpers');
 
 describe('CLI doctor contract', () => {
+  it('treats provider hook absence as healthy and optional', () => {
+    const fixture = makeFixture();
+    let output = '';
+    try {
+      const report = runDoctor(DEFAULT_CONFIG, {
+        json: true,
+        scan: () => [],
+        stats: {},
+        runtime: {
+          platform: 'linux',
+          homedir: fixture.home,
+          execSync: () => '',
+        },
+        write: (chunk) => { output += chunk; },
+      });
+      const hook = JSON.parse(output).checks.find((check) => check.id === 'hook');
+
+      assert.equal(hook.status, 'ok');
+      assert.match(hook.message, /optional|not required/i);
+      assert.equal(report.checks.find((check) => check.id === 'hook').status, 'ok');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('warns only when the exact legacy Claude Stop hook remains', () => {
+    const fixture = makeFixture();
+    let output = '';
+    try {
+      const settingsPath = require('node:path').join(fixture.home, '.claude', 'settings.json');
+      require('node:fs').mkdirSync(require('node:path').dirname(settingsPath), { recursive: true });
+      require('node:fs').writeFileSync(settingsPath, JSON.stringify({
+        hooks: { Stop: [{ matcher: '', hooks: [{ type: 'command', command: '/usr/local/bin/zclean --yes --session-pid=$PPID' }] }] },
+      }));
+      runDoctor(DEFAULT_CONFIG, {
+        json: true,
+        scan: () => [],
+        stats: {},
+        runtime: { platform: 'linux', homedir: fixture.home, execSync: () => '' },
+        write: (chunk) => { output += chunk; },
+      });
+
+      const hook = JSON.parse(output).checks.find((check) => check.id === 'hook');
+      assert.equal(hook.status, 'warning');
+      assert.match(hook.message, /legacy Claude Stop hook/i);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('warns when optional provider settings cannot be inspected safely', () => {
+    const fixture = makeFixture();
+    let output = '';
+    try {
+      const settingsPath = require('node:path').join(fixture.home, '.claude', 'settings.json');
+      require('node:fs').mkdirSync(require('node:path').dirname(settingsPath), { recursive: true });
+      require('node:fs').writeFileSync(settingsPath, '{ invalid json');
+
+      runDoctor(DEFAULT_CONFIG, {
+        json: true,
+        scan: () => [],
+        stats: {},
+        runtime: { platform: 'linux', homedir: fixture.home, execSync: () => '' },
+        write: (chunk) => { output += chunk; },
+      });
+
+      const hook = JSON.parse(output).checks.find((check) => check.id === 'hook');
+      assert.equal(hook.status, 'warning');
+      assert.match(hook.message, /unreadable|inspect/i);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('warns when an installed scheduler still contains automatic cleanup', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const cases = [
+      {
+        platform: 'darwin',
+        file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
+        content: '<string>/usr/local/bin/zclean</string><string>--yes</string>',
+        execSync: () => 'com.zclean.hourly',
+      },
+      {
+        platform: 'linux',
+        file: ['.config', 'systemd', 'user', 'zclean.timer'],
+        service: ['.config', 'systemd', 'user', 'zclean.service'],
+        content: '[Timer]\nOnCalendar=hourly\n',
+        serviceContent: '[Service]\nExecStart=/usr/local/bin/zclean --yes\n',
+        execSync: () => '',
+      },
+      {
+        platform: 'win32',
+        execSync: () => 'Task To Run: C:\\tools\\zclean.cmd --yes',
+      },
+    ];
+
+    for (const item of cases) {
+      const fixture = makeFixture();
+      let output = '';
+      try {
+        if (item.file) {
+          const file = path.join(fixture.home, ...item.file);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, item.content);
+        }
+        if (item.service) {
+          fs.writeFileSync(path.join(fixture.home, ...item.service), item.serviceContent);
+        }
+
+        runDoctor(DEFAULT_CONFIG, {
+          json: true,
+          scan: () => [],
+          stats: {},
+          runtime: {
+            platform: item.platform,
+            homedir: fixture.home,
+            execSync: item.execSync,
+          },
+          write: (chunk) => { output += chunk; },
+        });
+
+        const scheduler = JSON.parse(output).checks.find((check) => check.id === 'scheduler');
+        assert.equal(scheduler.status, 'warning', item.platform);
+        assert.match(scheduler.message, /unsafe|report-only|zclean init/i, item.platform);
+      } finally {
+        cleanupFixture(fixture);
+      }
+    }
+  });
+
+  it('accepts generated report-only scheduler definitions on every platform', () => {
+    const fs = require('node:fs');
+    const path = require('node:path');
+    const bin = process.platform === 'win32'
+      ? 'C:\\Program Files\\zclean\\zclean.cmd'
+      : '/usr/local/bin/zclean';
+    const cases = [
+      {
+        platform: 'darwin',
+        file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
+        content: generatePlist(bin),
+        execSync: () => 'com.zclean.hourly',
+      },
+      {
+        platform: 'linux',
+        file: ['.config', 'systemd', 'user', 'zclean.timer'],
+        service: ['.config', 'systemd', 'user', 'zclean.service'],
+        content: '[Timer]\nOnCalendar=hourly\n',
+        serviceContent: generateService(bin),
+        execSync: () => '',
+      },
+      {
+        platform: 'win32',
+        execSync: () => `Task To Run: ${formatTaskRunCommand(bin)}`,
+      },
+    ];
+
+    for (const item of cases) {
+      const fixture = makeFixture();
+      let output = '';
+      try {
+        if (item.file) {
+          const file = path.join(fixture.home, ...item.file);
+          fs.mkdirSync(path.dirname(file), { recursive: true });
+          fs.writeFileSync(file, item.content);
+        }
+        if (item.service) fs.writeFileSync(path.join(fixture.home, ...item.service), item.serviceContent);
+
+        runDoctor(DEFAULT_CONFIG, {
+          json: true,
+          scan: () => [],
+          stats: {},
+          runtime: {
+            platform: item.platform,
+            homedir: fixture.home,
+            execSync: item.execSync,
+          },
+          write: (chunk) => { output += chunk; },
+        });
+
+        const scheduler = JSON.parse(output).checks.find((check) => check.id === 'scheduler');
+        assert.equal(scheduler.status, 'ok', item.platform);
+      } finally {
+        cleanupFixture(fixture);
+      }
+    }
+  });
+
+  it('labels an old cleanup as informational instead of a scheduler failure', () => {
+    const fixture = makeFixture();
+    let output = '';
+
+    try {
+      const report = runDoctor(DEFAULT_CONFIG, {
+        scan: () => [],
+        now: () => '2026-07-15T00:00:00.000Z',
+        stats: { lastRun: '2026-06-15T00:00:00.000Z' },
+        runtime: {
+          platform: 'linux',
+          homedir: fixture.home,
+          execSync: () => '',
+        },
+        write: (chunk) => { output += chunk; },
+      });
+      const lastCleanup = report.checks.find((check) => check.id === 'last-run');
+
+      assert.equal(lastCleanup.status, 'ok');
+      assert.doesNotMatch(lastCleanup.message, /scheduler/i);
+      assert.match(output, /Last cleanup:/);
+      assert.doesNotMatch(output, /Last run:/);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('prints doctor JSON with structured check results', () => {
     const result = runCli(['doctor', '--json']);
     assert.ok(result.status === 0 || result.status === 1, `unexpected status ${result.status}`);
@@ -96,6 +316,34 @@ describe('CLI doctor contract', () => {
       } else {
         process.env.ZCLEAN_CONFIG_DIR = originalConfigDir;
       }
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('redacts process diagnostic paths and secrets from doctor JSON', () => {
+    const fixture = makeFixture();
+    const failedScan = [];
+    failedScan.errors = [{
+      code: 'process-list-failed',
+      provider: 'ps',
+      message: 'failed /Users/example/private/project --token=secret-value',
+    }];
+    let output = '';
+
+    try {
+      runDoctor(DEFAULT_CONFIG, {
+        json: true,
+        scan: () => failedScan,
+        stats: {},
+        runtime: { platform: 'linux', homedir: fixture.home, execSync: () => '' },
+        write: (chunk) => { output += chunk; },
+      });
+
+      assert.equal(output.includes('/Users/example/private/project'), false);
+      assert.equal(output.includes('secret-value'), false);
+      assert.match(output, /\[local-path\]/);
+      assert.match(output, /\[redacted\]/);
+    } finally {
       cleanupFixture(fixture);
     }
   });

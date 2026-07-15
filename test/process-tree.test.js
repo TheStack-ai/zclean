@@ -33,6 +33,36 @@ describe('ProcessTree', () => {
       const tree = ProcessTree.fromPS();
       assert.equal(tree.get(process.pid), null);
     });
+
+    it('surfaces an explicit error when ps returns no process rows', () => {
+      const tree = ProcessTree.fromPS({
+        platform: 'darwin',
+        currentPid: 9999,
+        execSync: () => '',
+      });
+
+      assert.equal(tree.byPid.size, 0);
+      assert.equal(tree.errors.length, 1);
+      assert.equal(tree.errors[0].code, 'process-enumeration-provider-empty');
+      assert.equal(tree.errors[0].provider, 'ps');
+    });
+
+    it('surfaces an explicit error when ps output is only partially parsed', () => {
+      const tree = ProcessTree.fromPS({
+        platform: 'linux',
+        currentPid: 9999,
+        execSync: () => [
+          '123 1 2048 01:23:45 Mon Jan 1 12:00:00 2024 node server.js',
+          'this row cannot be parsed',
+        ].join('\n'),
+      });
+
+      assert.equal(tree.byPid.size, 1);
+      assert.equal(tree.get(123).cmd, 'node server.js');
+      assert.equal(tree.errors.length, 1);
+      assert.equal(tree.errors[0].code, 'process-enumeration-provider-partial');
+      assert.equal(tree.errors[0].provider, 'ps');
+    });
   });
 
   describe('Windows enumeration', () => {

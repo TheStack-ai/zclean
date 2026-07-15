@@ -32,6 +32,9 @@ describe('CLI argument contract', () => {
   it('lists report in help output', () => {
     const result = runCli(['--help']);
     assert.equal(result.status, 0);
+    assert.match(result.stdout, /zclean --yes\s+Kill only cleanupEligible confirmed-stale candidates/);
+    assert.match(result.stdout, /zclean init\s+Create config \+ hourly read-only audit scheduler/);
+    assert.doesNotMatch(result.stdout, /Install hooks \+ scheduler/);
     assert.match(result.stdout, /zclean history \[--json\]\s+Show cleanup history/);
     assert.match(result.stdout, /zclean protect list \[--json\]\s+Show protected whitelist entries/);
     assert.match(result.stdout, /zclean doctor \[--json\]\s+Check if zclean is properly set up/);
@@ -39,6 +42,47 @@ describe('CLI argument contract', () => {
     assert.match(result.stdout, /zclean audit \[--json\]\s+Alias for report/);
     assert.match(result.stdout, /zclean cache \[--json\]\s+Show safe workspace cache candidates/);
     assert.match(result.stdout, /--pattern=TEXT\s+Add a literal orphan-process pattern/);
+  });
+
+  it('returns nonzero valid JSON for filesystem and home cache roots', () => {
+    const fixture = makeFixture();
+    const rejectedRoots = [
+      { value: path.parse(fixture.home).root, code: 'cache-root-filesystem-root' },
+      { value: fixture.home, code: 'cache-root-home-directory' },
+    ];
+
+    try {
+      for (const rejected of rejectedRoots) {
+        const result = runCli(['cache', `--path=${rejected.value}`, '--json'], { fixture });
+        const report = parseStdoutJson(result);
+
+        assert.equal(result.status, 1, `expected ${rejected.code} to exit nonzero`);
+        assert.equal(result.stderr, '');
+        assert.equal(report.status, 'blocked');
+        assert.equal(report.safe, false);
+        assert.equal(report.ok, false);
+        assert.equal(report.exitCode, 1);
+        assert.equal(report.errors[0]?.code, rejected.code);
+        assert.equal(JSON.stringify(report).includes(fixture.home), false);
+      }
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('rejects unsupported init flags before setup starts', () => {
+    const fixture = makeFixture();
+    try {
+      const result = runCli(['init', '--claude-hook'], { fixture });
+      const output = `${result.stdout}\n${result.stderr}`;
+
+      assert.equal(result.status, 1);
+      assert.match(output, /Unsupported option for zclean init: --claude-hook/);
+      assert.equal(fs.existsSync(path.join(fixture.configDir, 'config.json')), false);
+      assert.equal(fs.existsSync(path.join(fixture.home, '.claude')), false);
+    } finally {
+      cleanupFixture(fixture);
+    }
   });
 
   it('rejects unsafe custom pattern flags before scanning', () => {

@@ -36,6 +36,14 @@ function killZombies(zombies, config) {
   }
 
   for (const proc of toKill) {
+    if (proc.cleanupEligible !== true || proc.classification !== 'confirmed-stale') {
+      results.skipped.push({
+        ...proc,
+        skipReason: 'cleanup-ineligible',
+      });
+      continue;
+    }
+
     // Re-verify before killing
     const verification = verifyProcess(proc);
     if (!verification.valid) {
@@ -100,9 +108,12 @@ function verifyProcess(proc, options = {}) {
 }
 
 function verifyProcessUnix(proc, runtime = runtimeOptions()) {
+  const safePid = normalizePid(proc.pid);
+  if (!safePid) return { valid: false, reason: 'invalid-pid' };
+
   try {
     // Check if PID still exists and get its command line
-    const cmd = runtime.execSync(`ps -o command= -p ${proc.pid}`, {
+    const cmd = runtime.execSync(`ps -o command= -p ${safePid}`, {
       encoding: 'utf-8',
       timeout: 5000,
     }).trim();
@@ -111,30 +122,34 @@ function verifyProcessUnix(proc, runtime = runtimeOptions()) {
       return { valid: false, reason: 'process-gone' };
     }
 
-    // Verify command line matches (at least partially)
-    // Use first 50 chars to handle truncation
-    const scanPrefix = proc.cmd.substring(0, 50);
-    const currentPrefix = cmd.substring(0, 50);
-    if (scanPrefix !== currentPrefix) {
+    const scanCmd = normalizeCommand(proc.cmd);
+    const currentCmd = normalizeCommand(cmd);
+    if (scanCmd !== currentCmd) {
       return { valid: false, reason: 'cmd-mismatch' };
     }
-    if (!matchesCustomLiteral(proc, cmd)) {
+    if (!matchesCustomLiteral(proc, currentCmd)) {
       return { valid: false, reason: 'pattern-mismatch' };
     }
 
     // Verify start time if available
     if (proc.startTime) {
+      let lstart;
       try {
-        const lstart = runtime.execSync(`ps -o lstart= -p ${proc.pid}`, {
+        lstart = runtime.execSync(`LC_ALL=C ps -o lstart= -p ${safePid}`, {
           encoding: 'utf-8',
           timeout: 5000,
         }).trim();
-        const currentStart = new Date(lstart).toISOString();
-        if (currentStart !== proc.startTime) {
-          return { valid: false, reason: 'start-time-mismatch' };
-        }
       } catch {
-        // Can't verify start time — proceed with caution
+        return { valid: false, reason: 'start-time-unverified' };
+      }
+
+      const scanStart = normalizeStartTime(proc.startTime);
+      const currentStart = normalizeStartTime(lstart);
+      if (!scanStart || !currentStart) {
+        return { valid: false, reason: 'start-time-unverified' };
+      }
+      if (currentStart !== scanStart) {
+        return { valid: false, reason: 'start-time-mismatch' };
       }
     }
 
@@ -150,23 +165,25 @@ function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32'
     return { valid: false, reason: 'process-gone' };
   }
 
-  const currentCmd = String(current.cmd || '').trim();
-  const scanPrefix = proc.cmd.substring(0, 50);
-  const currentPrefix = currentCmd.substring(0, 50);
+  const scanCmd = normalizeCommand(proc.cmd);
+  const currentCmd = normalizeCommand(current.cmd);
 
-  if (scanPrefix !== currentPrefix) {
+  if (scanCmd !== currentCmd) {
     return { valid: false, reason: 'cmd-mismatch' };
   }
   if (!matchesCustomLiteral(proc, currentCmd)) {
     return { valid: false, reason: 'pattern-mismatch' };
   }
 
-  if (proc.startTime && current.startTime && current.startTime !== proc.startTime) {
-    return { valid: false, reason: 'start-time-mismatch' };
-  }
-
-  if (proc.startTime && !current.startTime) {
-    return { valid: false, reason: 'start-time-unverified' };
+  if (proc.startTime) {
+    const scanStart = normalizeStartTime(proc.startTime);
+    const currentStart = normalizeStartTime(current.startTime);
+    if (!scanStart || !currentStart) {
+      return { valid: false, reason: 'start-time-unverified' };
+    }
+    if (currentStart !== scanStart) {
+      return { valid: false, reason: 'start-time-mismatch' };
+    }
   }
 
   return { valid: true, reason: 'verified' };
@@ -175,6 +192,18 @@ function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32'
 function matchesCustomLiteral(proc, currentCmd) {
   if (!proc.matchLiteral) return true;
   return String(currentCmd).toLowerCase().includes(String(proc.matchLiteral).toLowerCase());
+}
+
+function normalizeCommand(command) {
+  return String(command ?? '').trim();
+}
+
+function normalizeStartTime(startTime) {
+  const value = String(startTime ?? '').trim();
+  if (!value) return null;
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 }
 
 /**

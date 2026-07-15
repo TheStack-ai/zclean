@@ -1,13 +1,14 @@
 'use strict';
 
 const { c, bold, formatBytes, formatDuration } = require('./reporter');
+const { normalizeProvider, toPublicRuntimeMetadata } = require('./runtime-classifier');
 
 function reportAudit(report, options = {}) {
   const commandName = options.commandName || 'audit';
   console.log(bold(`\n  zclean ${commandName}`) + c('gray', ' - AI runtime hygiene review\n'));
   console.log(`  Score:       ${formatRiskScore(report.risk)}`);
   console.log(`  Status:      ${report.summary.status}`);
-  console.log(`  Candidates:  ${report.summary.zombieCount}`);
+  console.log(`  Candidates:  ${report.summary.zombieCount} (${report.summary.eligibleCount || 0} eligible, ${report.summary.blockedCount || 0} blocked)`);
   console.log(`  Memory:      ${formatBytes(report.summary.reclaimableBytes)} reclaimable`);
   console.log('  Scope:       AI coding runtime hygiene plus safe workspace caches; not app uninstall or whole-disk cleanup');
   console.log();
@@ -39,8 +40,13 @@ function reportAudit(report, options = {}) {
   if (report.proGradeReview.candidates.length > 0) {
     console.log(c('cyan', '  Top candidates'));
     for (const item of report.proGradeReview.topCandidates.slice(0, 5)) {
-      console.log(`    PID ${String(item.pid).padStart(6)}  ${item.pattern.padEnd(16)}  ${formatBytes(item.memoryBytes).padStart(8)}  ${formatDuration(item.ageMs).padStart(6)}`);
-      console.log(`      ${item.reason}`);
+      const runtime = toPublicRuntimeMetadata(item);
+      console.log(`    PID ${String(item.pid).padStart(6)}  ${runtime.provider.padEnd(12)}  ${runtime.classification.padEnd(15)}  ${formatBytes(item.memoryBytes).padStart(8)}  ${formatDuration(item.ageMs).padStart(6)}`);
+      console.log(`      confidence: ${runtime.confidence.level} (${runtime.confidence.score}/100)`);
+      console.log(`      evidence: ${runtime.evidence.join(', ') || 'none'}`);
+      if (!runtime.cleanupEligible) {
+        console.log(`      blocked: ${runtime.blockedReasons.join(', ')}`);
+      }
     }
     console.log();
   }
@@ -73,9 +79,15 @@ function formatRiskScore(risk) {
 }
 
 function formatDiagnostic(item) {
-  if (typeof item === 'string') return item;
-  const code = item.code ? `${item.code}: ` : '';
-  return `${code}${item.message || 'scan diagnostic'}`;
+  if (!item || typeof item !== 'object') return 'scan diagnostic';
+  const code = /^[a-z0-9-]{1,64}$/i.test(String(item.code || ''))
+    ? String(item.code).toLowerCase()
+    : 'scan-diagnostic';
+  const providers = Array.isArray(item.providers)
+    ? [...new Set(item.providers.map(normalizeProvider))]
+    : item.provider ? [normalizeProvider(item.provider)] : [];
+  const suffix = providers.length > 0 ? ` (providers: ${providers.join(', ')})` : '';
+  return `${code}: process scan diagnostic${suffix}`;
 }
 
 module.exports = {

@@ -185,19 +185,36 @@ class ProcessTree {
       });
     }
 
+    const lines = String(output || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (lines.length === 0) {
+      return new ProcessTree([], {
+        platform: runtime.platform,
+        errors: [providerDiagnostic(
+          'ps',
+          'process-enumeration-provider-empty',
+          'ps returned no process rows.'
+        )],
+      });
+    }
+
     const processes = [];
     const myPid = runtime.currentPid;
+    let unparsedLineCount = 0;
 
-    for (const line of output.trim().split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
+    for (const trimmed of lines) {
 
       // Format: PID PPID RSS ELAPSED [DAY ]MON DD HH:MM:SS YEAR COMMAND
       // Example: "  123  456  2048  01:23:45  Mon Jan  1 12:00:00 2024  node server.js"
       const match = trimmed.match(
         /^\s*(\d+)\s+(\d+)\s+(\d+)\s+([\d:.-]+)\s+\w+\s+(\w+\s+\d+\s+[\d:]+\s+\d+)\s+(.+)$/
       );
-      if (!match) continue;
+      if (!match) {
+        unparsedLineCount += 1;
+        continue;
+      }
 
       const pid = parseInt(match[1], 10);
       if (pid === myPid) continue;
@@ -221,7 +238,15 @@ class ProcessTree {
       });
     }
 
-    return new ProcessTree(processes, { platform: runtime.platform });
+    const errors = unparsedLineCount > 0
+      ? [providerDiagnostic(
+        'ps',
+        'process-enumeration-provider-partial',
+        `ps returned ${unparsedLineCount} unparsed process row${unparsedLineCount === 1 ? '' : 's'} out of ${lines.length}.`
+      )]
+      : [];
+
+    return new ProcessTree(processes, { platform: runtime.platform, errors });
   }
 
   static fromWMIC(options = {}) {

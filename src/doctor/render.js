@@ -13,16 +13,16 @@ function renderDoctorText(report, write) {
     write(c('green', '  All checks passed.\n\n'));
     return;
   }
-  write(c('yellow', `  ${report.issueCount} issue${report.issueCount === 1 ? '' : 's'} found. Run \`zclean init\` to fix.\n\n`));
+  write(c('yellow', `  ${report.issueCount} issue${report.issueCount === 1 ? '' : 's'} found. Review the checks above; use \`zclean init\` for setup issues.\n\n`));
 }
 
 function formatCheckLine(check) {
   const labels = {
     config: 'Config',
     'process-scan': 'Process scan',
-    hook: 'Hook',
+    hook: 'Provider hooks',
     scheduler: 'Scheduler',
-    'last-run': 'Last run',
+    'last-run': 'Last cleanup',
   };
   const colors = {
     ok: 'green',
