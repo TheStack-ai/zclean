@@ -30,7 +30,7 @@ describe('install experience', () => {
       assert.equal(result.status, 0, result.stderr);
       assert.match(result.stdout, /███████\s+██████/);
       assert.match(result.stdout, /AI CODING RUNTIME HYGIENE/);
-      assert.match(result.stdout, /zclean init/);
+      assert.match(result.stdout, /zclean audit/);
       assert.match(result.stdout, /dry-run/i);
       assert.equal(result.stderr, '');
       assert.equal(fs.existsSync(path.join(home, '.zclean')), false);
@@ -101,7 +101,7 @@ describe('install experience', () => {
 
       assert.equal(installed.status, 0, installed.stderr);
       assert.match(installed.stdout, /Z \/ CLEAN/);
-      assert.match(installed.stdout, /zclean init/);
+      assert.match(installed.stdout, /zclean audit/);
       assert.equal(fs.existsSync(path.join(root, 'home', '.zclean')), false);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

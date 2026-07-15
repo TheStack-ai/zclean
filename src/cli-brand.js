@@ -29,10 +29,11 @@ function renderPostinstall({ version }) {
     `  ${c('gray', 'COMMAND')}     zclean`,
     `  ${c('gray', 'SAFETY')}      dry-run by default`,
     '',
-    c('gray', '  Continue setup'),
-    `    ${c('cyan', '$ zclean init')}`,
+    c('gray', '  Start with a read-only audit'),
+    `    ${c('cyan', '$ zclean audit')}`,
     '',
-    c('gray', '  Inspect first. Clean only when you decide.'),
+    c('gray', '  Run zclean init later only if you want automation.'),
+    c('gray', '  Cleanup still requires --yes.'),
     '',
   ].join('\n');
 }
