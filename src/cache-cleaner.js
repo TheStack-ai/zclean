@@ -19,7 +19,6 @@ function cleanCacheTargets(candidates, options = {}) {
     readDirectory: options.readdirSync || fs.readdirSync,
     rename: options.renameSync || fs.renameSync,
     removeDirectory: options.rmdirSync || fs.rmdirSync,
-    truncate: options.ftruncateSync || fs.ftruncateSync,
     unlink: options.unlinkSync || fs.unlinkSync,
   };
   const ordered = [...candidates]
@@ -125,23 +124,19 @@ function stageAndRemoveEntry(context, target) {
     if (initial.isDirectory() && !initial.isSymbolicLink()) {
       removeStagedDirectory(context, stagedPath, initial);
     } else if (initial.isFile() && !initial.isSymbolicLink()) {
-      if (Number(initial.nlink) !== 1) {
-        const error = new Error('Staged cache file shares its inode with another path.');
-        error.code = 'CACHE_SHARED_INODE';
-        throw error;
-      }
+      if (Number(initial.nlink) !== 1) throw sharedInodeError();
       descriptor = runtime.open(stagedPath, fs.constants.O_WRONLY | (fs.constants.O_NOFOLLOW || 0));
       const opened = runtime.inspectDescriptor(descriptor, { bigint: true });
       if (!sameIdentity(initial, opened)) {
         throw new Error('Staged cache file identity changed while it was being opened.');
       }
-      runtime.truncate(descriptor, 0);
-      const truncated = runtime.inspectDescriptor(descriptor, { bigint: true });
-      if (!sameIdentity(initial, truncated)) {
-        throw new Error('Staged cache file identity changed while it was being reclaimed.');
-      }
+      if (Number(opened.nlink) !== 1) throw sharedInodeError();
       assertStagedUnchanged(runtime, stagedPath, initial);
       runtime.unlink(stagedPath);
+      const detached = runtime.inspectDescriptor(descriptor, { bigint: true });
+      if (!sameIdentity(initial, detached) || Number(detached.nlink) !== 0) {
+        throw sharedInodeError();
+      }
       runtime.close(descriptor);
       descriptor = null;
     } else if (initial.isSymbolicLink()) {
@@ -170,6 +165,12 @@ function stageAndRemoveEntry(context, target) {
       throw cleanupError;
     }
   }
+}
+
+function sharedInodeError() {
+  const error = new Error('Staged cache file shares its inode with another path.');
+  error.code = 'CACHE_SHARED_INODE';
+  return error;
 }
 
 function removeStagedDirectory(context, stagedPath, initial) {

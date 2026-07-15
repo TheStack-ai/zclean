@@ -29,6 +29,90 @@ describe('workspace cache cleanup completion', () => {
       cleanupFixture(fixture);
     }
   });
+
+  it('fails without truncating when a hard link appears while the staged file opens', (t) => {
+    const fixture = makeFixture();
+    const workspace = path.join(fixture.root, 'workspace');
+    const cacheFile = path.join(workspace, '.turbo', 'state.bin');
+    const outsideFile = path.join(fixture.root, 'outside.bin');
+
+    try {
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, 'must-survive-racing-link');
+      try {
+        fs.linkSync(cacheFile, outsideFile);
+        fs.unlinkSync(outsideFile);
+      } catch (error) {
+        if (['EACCES', 'EPERM', 'ENOTSUP'].includes(error.code)) {
+          t.skip(`hard links unavailable: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+
+      let linked = false;
+      const result = cleanCacheTargets(scanCacheTargets(workspace), {
+        openSync(target, flags) {
+          fs.linkSync(target, outsideFile);
+          linked = true;
+          return fs.openSync(target, flags);
+        },
+      });
+
+      assert.equal(linked, true);
+      assert.equal(result.ok, false);
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.deleted.length, 0);
+      assert.equal(result.failed.length, 1);
+      assert.equal(fs.readFileSync(cacheFile, 'utf8'), 'must-survive-racing-link');
+      assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'must-survive-racing-link');
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('fails without truncating when a hard link appears during path detachment', (t) => {
+    const fixture = makeFixture();
+    const workspace = path.join(fixture.root, 'workspace');
+    const cacheFile = path.join(workspace, '.turbo', 'state.bin');
+    const outsideFile = path.join(fixture.root, 'outside-detached.bin');
+
+    try {
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, 'must-survive-detach-race');
+      try {
+        fs.linkSync(cacheFile, outsideFile);
+        fs.unlinkSync(outsideFile);
+      } catch (error) {
+        if (['EACCES', 'EPERM', 'ENOTSUP'].includes(error.code)) {
+          t.skip(`hard links unavailable: ${error.code}`);
+          return;
+        }
+        throw error;
+      }
+
+      let linked = false;
+      const result = cleanCacheTargets(scanCacheTargets(workspace), {
+        unlinkSync(target) {
+          if (!linked) {
+            fs.linkSync(target, outsideFile);
+            linked = true;
+          }
+          fs.unlinkSync(target);
+        },
+      });
+
+      assert.equal(linked, true);
+      assert.equal(result.ok, false);
+      assert.equal(result.exitCode, 1);
+      assert.equal(result.deleted.length, 0);
+      assert.equal(result.failed.length, 1);
+      assert.equal(fs.readFileSync(outsideFile, 'utf8'), 'must-survive-detach-race');
+      assert.deepEqual(privateStagingNames(workspace), []);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
 });
 
 function privateStagingNames(workspace) {

@@ -83,13 +83,13 @@ describe('workspace cache cleanup safety', () => {
           fs.renameSync(source, destination);
           if (source === scannedCachePath) quarantinedPath = destination;
         },
-        ftruncateSync(descriptor, length) {
+        unlinkSync(target) {
           if (!swapped) {
             swapped = true;
             fs.renameSync(quarantinedPath, movedCachePath);
             fs.renameSync(unrelatedPath, quarantinedPath);
           }
-          fs.ftruncateSync(descriptor, length);
+          fs.unlinkSync(target);
         },
       });
 
@@ -221,8 +221,8 @@ describe('workspace cache cleanup safety', () => {
         root: workspace,
         yes: true,
         appendLog() {},
-        ftruncateSync() {
-          const error = new Error('cannot reclaim staged cache file');
+        unlinkSync() {
+          const error = new Error('cannot remove staged cache file');
           error.code = 'EACCES';
           throw error;
         },
