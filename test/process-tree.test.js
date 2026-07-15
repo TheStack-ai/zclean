@@ -3,6 +3,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { ProcessTree, parseElapsed } = require('../src/process-tree');
+const { sanitizeDiagnosticText } = require('../src/process-diagnostic');
 
 const isWindows = process.platform === 'win32';
 
@@ -283,6 +284,18 @@ describe('ProcessTree', () => {
     it('returns 0 for empty/null', () => {
       assert.equal(parseElapsed(''), 0);
       assert.equal(parseElapsed(null), 0);
+    });
+  });
+
+  describe('public process diagnostics', () => {
+    it('redacts credential values without treating hyphenated prose as an option', () => {
+      const sanitized = sanitizeDiagnosticText(
+        'bearer-secret worker failed /Users/example/private --token=secret-value'
+      );
+
+      assert.match(sanitized, /^bearer-secret worker failed \[local-path\]/);
+      assert.match(sanitized, /--token=\[redacted\]/);
+      assert.equal(sanitized.includes('secret-value'), false);
     });
   });
 });

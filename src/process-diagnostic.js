@@ -17,8 +17,8 @@ function diagnosticMessage(error) {
 function sanitizeDiagnosticText(value) {
   return String(value || '')
     .replace(
-      /(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      '$1=[redacted]'
+      /(^|[\s("'=])(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+      '$1$2=[redacted]'
     )
     .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
     .replace(
