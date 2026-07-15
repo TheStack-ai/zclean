@@ -6,39 +6,60 @@ const { inspectSchedulerDefinition } = require('../src/doctor/scheduler-definiti
 
 describe('scheduler definition safety', () => {
   it('rejects a launchd Program that disagrees with report-only ProgramArguments', () => {
-    const plist = [
-      '<plist><dict>',
+    const programValues = [
       '<key>Program</key><string>/tmp/untrusted-runner</string>',
-      '<key>ProgramArguments</key><array>',
-      '<string>/usr/local/bin/zclean</string>',
-      '<string>audit</string>',
-      '<string>--json</string>',
-      '</array>',
-      '</dict></plist>',
-    ].join('');
+      '<key>Program</key><!-- gap --><string>/tmp/untrusted-runner</string>',
+      '<key>Program</key><?gap ok?><string>/tmp/untrusted-runner</string>',
+      '<key>Program</key><string data-x="1">/tmp/untrusted-runner</string>',
+    ];
 
-    const inspection = inspectSchedulerDefinition(plist, 'darwin');
+    for (const programValue of programValues) {
+      const plist = [
+        '<plist><dict>',
+        programValue,
+        '<key>ProgramArguments</key><array>',
+        '<string>/usr/local/bin/zclean</string>',
+        '<string>audit</string>',
+        '<string>--json</string>',
+        '</array>',
+        '</dict></plist>',
+      ].join('');
 
-    assert.equal(inspection.safe, false);
-    assert.match(inspection.reason, /executable|contract|verified/i);
+      const inspection = inspectSchedulerDefinition(plist, 'darwin');
+
+      assert.equal(inspection.safe, false, programValue);
+      assert.match(inspection.reason, /executable|contract|verified|keys/i, programValue);
+    }
   });
 
   it('rejects duplicate launchd ProgramArguments blocks', () => {
-    const plist = [
-      '<plist><dict>',
+    const safe = [
       '<key>ProgramArguments</key><array>',
       '<string>/usr/local/bin/zclean</string><string>audit</string><string>--json</string>',
       '</array>',
-      '<key>ProgramArguments</key><array>',
-      '<string>/usr/local/bin/zclean</string><string>uninstall</string><string>--json</string>',
-      '</array>',
-      '</dict></plist>',
     ].join('');
+    const definitions = [
+      safe + [
+        '<key>ProgramArguments</key><array>',
+        '<string>/usr/local/bin/zclean</string><string>uninstall</string><string>--json</string>',
+        '</array>',
+      ].join(''),
+      safe.replace('</array>', '<integer>7</integer></array>'),
+      `<key>EnvironmentVariables</key><dict>${safe}</dict>`,
+      safe.replace('ProgramArguments', 'programarguments'),
+      `<!-- ${safe} -->`,
+      `<key>Note</key><string><![CDATA[${safe}]]></string>`,
+    ];
 
-    const inspection = inspectSchedulerDefinition(plist, 'darwin');
+    for (const definition of definitions) {
+      const inspection = inspectSchedulerDefinition(
+        `<plist><dict>${definition}</dict></plist>`,
+        'darwin'
+      );
 
-    assert.equal(inspection.safe, false);
-    assert.match(inspection.reason, /contract|verified/i);
+      assert.equal(inspection.safe, false, definition);
+      assert.match(inspection.reason, /contract|verified|keys/i, definition);
+    }
   });
 
   it('rejects XML-equivalent duplicate launchd ProgramArguments blocks', () => {

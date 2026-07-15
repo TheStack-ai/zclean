@@ -1,5 +1,7 @@
 'use strict';
 
+const { parsePlistXml } = require('./plist-parser');
+
 function inspectSchedulerDefinition(value, platform) {
   if (typeof value !== 'string' || !value.trim()) {
     return { safe: false, reason: 'command could not be verified' };
@@ -7,15 +9,15 @@ function inspectSchedulerDefinition(value, platform) {
   if (/(?:^|[\s>\"])--yes(?:[\s<\"]|$)/i.test(value)) {
     return { safe: false, reason: 'unsafe automatic cleanup command found' };
   }
-  const normalized = platform === 'darwin' ? normalizeLaunchdKeys(value) : value;
-  if (!normalized) {
+  const definition = platform === 'darwin' ? parsePlistXml(value) : value;
+  if (!definition) {
     return { safe: false, reason: 'launchd keys could not be verified' };
   }
-  const args = extractSchedulerArgs(normalized, platform);
+  const args = extractSchedulerArgs(definition, platform);
   if (!args || args.length !== 3 || args[1] !== 'audit' || args[2] !== '--json') {
     return { safe: false, reason: 'command is not the report-only audit contract' };
   }
-  if (platform === 'darwin' && !launchdProgramMatches(normalized, args[0])) {
+  if (platform === 'darwin' && !launchdProgramMatches(definition, args[0])) {
     return { safe: false, reason: 'launchd Program does not match the scheduled executable' };
   }
   if (!isZcleanExecutable(args[0])) {
@@ -24,44 +26,21 @@ function inspectSchedulerDefinition(value, platform) {
   return { safe: true };
 }
 
-function normalizeLaunchdKeys(value) {
-  let unresolved = false;
-  const normalized = value.replace(
-    /<key\b[^>]*>([\s\S]*?)<\/key>/gi,
-    (_match, key) => {
-      const decoded = decodeLaunchdKey(key);
-      if (decoded === null) unresolved = true;
-      return `<key>${decoded || ''}</key>`;
-    }
-  );
-  return unresolved ? null : normalized;
-}
-
-function decodeLaunchdKey(value) {
-  const text = value.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1');
-  if (/[<>]/.test(text)) return null;
-  const decoded = decodeXml(text);
-  return /[<>]|&(?:#(?:x[0-9a-f]+|\d+)|[a-z_:][\w:.-]*);/i.test(decoded)
-    ? null
-    : decoded;
-}
-
-function launchdProgramMatches(value, executable) {
-  const programs = [...value.matchAll(
-    /<key>\s*Program\s*<\/key>\s*<string>([\s\S]*?)<\/string>/gi
-  )];
+function launchdProgramMatches(definition, executable) {
+  const programs = definition.entries.filter((entry) => entry.key === 'Program');
   return programs.length === 0
-    || (programs.length === 1 && decodeXml(programs[0][1]).trim() === executable);
+    || (programs.length === 1
+      && programs[0].value.type === 'string'
+      && programs[0].value.value.trim() === executable);
 }
 
 function extractSchedulerArgs(value, platform) {
   if (platform === 'darwin') {
-    const blocks = [...value.matchAll(
-      /<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/gi
-    )];
-    if (blocks.length !== 1) return null;
-    return [...blocks[0][1].matchAll(/<string>([\s\S]*?)<\/string>/gi)]
-      .map((match) => decodeXml(match[1]).trim());
+    const entries = value.entries.filter((entry) => entry.key === 'ProgramArguments');
+    if (entries.length !== 1 || entries[0].value.type !== 'array') return null;
+    const args = entries[0].value.values;
+    if (args.length !== 3 || args.some((arg) => arg.type !== 'string')) return null;
+    return args.map((arg) => arg.value.trim());
   }
 
   if (platform === 'linux') {
