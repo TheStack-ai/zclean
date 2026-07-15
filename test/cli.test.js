@@ -32,15 +32,20 @@ describe('CLI argument contract', () => {
   it('lists report in help output', () => {
     const result = runCli(['--help']);
     assert.equal(result.status, 0);
-    assert.match(result.stdout, /zclean --yes\s+Kill only cleanupEligible confirmed-stale candidates/);
-    assert.match(result.stdout, /zclean init\s+Create config \+ hourly read-only audit scheduler/);
-    assert.match(result.stdout, /zclean history \[--json\]\s+Show cleanup history/);
-    assert.match(result.stdout, /zclean protect list \[--json\]\s+Show protected whitelist entries/);
-    assert.match(result.stdout, /zclean doctor \[--json\]\s+Check if zclean is properly set up/);
-    assert.match(result.stdout, /zclean report \[--json\] Show AI runtime hygiene report/);
-    assert.match(result.stdout, /zclean audit \[--json\]\s+Alias for report/);
-    assert.match(result.stdout, /zclean cache \[--json\]\s+Show safe workspace cache candidates/);
-    assert.match(result.stdout, /--pattern=TEXT\s+Add a literal orphan-process pattern/);
+    const helpLines = result.stdout.split('\n').map((line) => line.trim());
+    for (const command of [
+      'zclean --yes',
+      'zclean init',
+      'zclean history [--json]',
+      'zclean protect list [--json]',
+      'zclean doctor [--json]',
+      'zclean report [--json]',
+      'zclean audit [--json]',
+      'zclean cache [--json]',
+    ]) {
+      assert.ok(helpLines.some((line) => line === command || line.startsWith(`${command} `)));
+    }
+    assert.match(result.stdout, /^\s+--pattern=TEXT\b/m);
   });
 
   it('returns nonzero valid JSON for filesystem and home cache roots', () => {

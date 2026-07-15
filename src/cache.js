@@ -10,10 +10,19 @@ const {
 } = require('./cache-report');
 const { scanCacheTargets } = require('./cache-scanner');
 
+function runCacheCommand(flags = {}) {
+  return runCache({
+    root: flags.path === undefined ? process.cwd() : flags.path,
+    yes: Boolean(flags.yes || flags.y),
+    json: Boolean(flags.json),
+  });
+}
+
 function runCache(options = {}) {
   const yes = Boolean(options.yes);
   const log = typeof options.appendLog === 'function' ? options.appendLog : appendLog;
-  const report = buildCacheReport({ root: options.root || process.cwd(), yes });
+  const root = options.root === undefined ? process.cwd() : options.root;
+  const report = buildCacheReport({ root, yes });
 
   if (yes && report.safe && report._privateCandidates.length > 0) {
     applyCleanupResult(report, cleanCacheTargets(report._privateCandidates, {
@@ -68,5 +77,6 @@ module.exports = {
   buildCacheReport,
   cleanCacheTargets,
   runCache,
+  runCacheCommand,
   scanCacheTargets,
 };

@@ -11,7 +11,9 @@ function cleanCacheTargets(candidates, options = {}) {
   const skipped = [];
   const runtime = {
     existsSync: options.existsSync || fs.existsSync,
+    inspect: options.lstatSync || fs.lstatSync,
     mkdirTemp: options.mkdtempSync || fs.mkdtempSync,
+    readDirectory: options.readdirSync || fs.readdirSync,
     rename: options.renameSync || fs.renameSync,
     remove: options.rmSync || fs.rmSync,
     removeDirectory: options.rmdirSync || fs.rmdirSync,
@@ -40,7 +42,7 @@ function cleanCacheTargets(candidates, options = {}) {
         skipped.push({ ...candidate, reason: quarantinedReason });
         continue;
       }
-      runtime.remove(quarantinedPath, { recursive: true, force: true });
+      removeQuarantinedTree({ runtime, candidate, quarantinedPath });
       removeEmptyDirectory(runtime, quarantineDirectory);
       deleted.push(candidate);
     } catch (error) {
@@ -65,6 +67,49 @@ function cleanCacheTargets(candidates, options = {}) {
     status: ok ? 'success' : 'incomplete',
     exitCode: ok ? 0 : 1,
   };
+}
+
+function removeQuarantinedTree(context, directory = context.quarantinedPath) {
+  const { runtime, quarantinedPath } = context;
+  assertQuarantineUnchanged(context);
+  const entries = runtime.readDirectory(directory, { withFileTypes: true });
+  assertQuarantineUnchanged(context);
+
+  for (const entry of entries) {
+    assertQuarantineUnchanged(context);
+    const target = path.join(directory, entry.name);
+    const stat = runtime.inspect(target);
+    assertQuarantineUnchanged(context);
+    if (stat.isDirectory() && !stat.isSymbolicLink()) removeQuarantinedTree(context, target);
+    else stageAndRemoveEntry(context, target);
+    assertQuarantineUnchanged(context);
+  }
+
+  runtime.removeDirectory(directory);
+  if (directory !== quarantinedPath) assertQuarantineUnchanged(context);
+}
+
+function stageAndRemoveEntry(context, target) {
+  const { runtime, quarantinedPath } = context;
+  const stagingDirectory = runtime.mkdirTemp(
+    path.join(path.dirname(quarantinedPath), '.zclean-delete-')
+  );
+  const stagedPath = path.join(stagingDirectory, 'target');
+  runtime.rename(target, stagedPath);
+  assertQuarantineUnchanged(context);
+  try {
+    runtime.remove(stagedPath, { force: true });
+  } finally {
+    removeEmptyDirectory(runtime, stagingDirectory);
+  }
+}
+
+function assertQuarantineUnchanged({ candidate, quarantinedPath }) {
+  const reason = quarantinedSkipReason(candidate, quarantinedPath);
+  if (!reason) return;
+  const error = new Error('Quarantined cache path changed during removal.');
+  error.code = reason.code;
+  throw error;
 }
 
 function restoreQuarantined(runtime, originalPath, quarantinedPath, quarantineDirectory) {

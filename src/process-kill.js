@@ -41,25 +41,27 @@ function verifyProcessUnix(proc, runtime = runtimeOptions()) {
       return { valid: false, reason: 'pattern-mismatch' };
     }
 
-    if (proc.startTime) {
-      let lstart;
-      try {
-        lstart = runtime.execSync(`LC_ALL=C ps -o lstart= -p ${safePid}`, {
-          encoding: 'utf-8',
-          timeout: 5000,
-        }).trim();
-      } catch {
-        return { valid: false, reason: 'start-time-unverified' };
-      }
+    const scanStart = normalizeStartTime(proc.startTime);
+    if (!scanStart) {
+      return { valid: false, reason: 'start-time-unverified' };
+    }
 
-      const scanStart = normalizeStartTime(proc.startTime);
-      const currentStart = normalizeStartTime(lstart);
-      if (!scanStart || !currentStart) {
-        return { valid: false, reason: 'start-time-unverified' };
-      }
-      if (currentStart !== scanStart) {
-        return { valid: false, reason: 'start-time-mismatch' };
-      }
+    let lstart;
+    try {
+      lstart = runtime.execSync(`LC_ALL=C ps -o lstart= -p ${safePid}`, {
+        encoding: 'utf-8',
+        timeout: 5000,
+      }).trim();
+    } catch {
+      return { valid: false, reason: 'start-time-unverified' };
+    }
+
+    const currentStart = normalizeStartTime(lstart);
+    if (!currentStart) {
+      return { valid: false, reason: 'start-time-unverified' };
+    }
+    if (currentStart !== scanStart) {
+      return { valid: false, reason: 'start-time-mismatch' };
     }
 
     return { valid: true, reason: 'verified' };
@@ -94,15 +96,13 @@ function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32'
     return { valid: false, reason: 'pattern-mismatch' };
   }
 
-  if (proc.startTime) {
-    const scanStart = normalizeStartTime(proc.startTime);
-    const currentStart = normalizeStartTime(current.startTime);
-    if (!scanStart || !currentStart) {
-      return { valid: false, reason: 'start-time-unverified' };
-    }
-    if (currentStart !== scanStart) {
-      return { valid: false, reason: 'start-time-mismatch' };
-    }
+  const scanStart = normalizeStartTime(proc.startTime);
+  const currentStart = normalizeStartTime(current.startTime);
+  if (!scanStart || !currentStart) {
+    return { valid: false, reason: 'start-time-unverified' };
+  }
+  if (currentStart !== scanStart) {
+    return { valid: false, reason: 'start-time-mismatch' };
   }
 
   return { valid: true, reason: 'verified' };

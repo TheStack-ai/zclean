@@ -33,7 +33,8 @@ const SKIP_DIR_NAMES = new Set(['.git', '.hg', '.svn', '.omo', '.zclean']);
 const MAX_SCAN_DEPTH = 5;
 
 function scanCacheTargets(root) {
-  const validation = validateCacheRoot(root || process.cwd());
+  const requestedRoot = root === undefined ? process.cwd() : root;
+  const validation = validateCacheRoot(requestedRoot);
   if (!validation.ok) return attachScanState([], [validation.error], null);
 
   const { rootState } = validation;

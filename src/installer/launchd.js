@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const { LOCAL_BIN_HINT, resolveZcleanBin } = require('./bin-path');
+const { writeFileAtomic } = require('./settings-write');
 
 const PLIST_NAME = 'com.zclean.hourly';
 const PLIST_DIR = path.join(os.homedir(), 'Library', 'LaunchAgents');
@@ -126,7 +127,14 @@ function installLaunchd(options = {}) {
   }
 
   const plist = generatePlist(binPath, { homedir: homeDir });
-  fs.writeFileSync(plistPath, plist, 'utf-8');
+  const written = writeFileAtomic(plistPath, plist, { mode: 0o644 });
+  if (!written.ok) {
+    return {
+      installed: false,
+      active: false,
+      message: 'The launchd plist could not be written safely; its destination was preserved.',
+    };
+  }
 
   try {
     run('launchctl', ['bootstrap', `gui/${uid}`, plistPath], launchctlOptions());

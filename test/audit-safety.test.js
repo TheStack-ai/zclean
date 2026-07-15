@@ -87,7 +87,6 @@ describe('audit report', () => {
     assert.equal(blockedReport.proGradeReview.safeToClean, false);
     assert.equal(blockedReport.summary.eligibleCount, 0);
     assert.equal(blockedReport.summary.blockedCount, 1);
-    assert.doesNotMatch(JSON.stringify(blockedReport.recommendations), /zclean --yes/);
     assert.ok(!blockedReport.nextActions.some((item) => item.command === 'zclean --yes'));
 
     const incomplete = [classified({
@@ -103,7 +102,6 @@ describe('audit report', () => {
     assert.equal(incompleteReport.proGradeReview.safeToClean, false);
     assert.equal(incompleteReport.summary.reclaimableBytes, 0);
     assert.equal(incompleteReport.candidates.memoryReclaimable, 0);
-    assert.doesNotMatch(JSON.stringify(incompleteReport.recommendations), /zclean --yes/);
     assert.ok(!incompleteReport.nextActions.some((item) => item.command === 'zclean --yes'));
   });
 

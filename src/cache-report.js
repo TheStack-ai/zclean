@@ -5,7 +5,8 @@ const { c, bold, formatBytes } = require('./reporter');
 const { scanCacheTargets } = require('./cache-scanner');
 
 function buildCacheReport(options = {}) {
-  const candidates = scanCacheTargets(options.root || process.cwd());
+  const root = options.root === undefined ? process.cwd() : options.root;
+  const candidates = scanCacheTargets(root);
   const errors = Array.isArray(candidates.errors)
     ? candidates.errors.map((error) => ({ ...error }))
     : [];

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-function writeJsonAtomic(filePath, value, options = {}) {
+function writeFileAtomic(filePath, contents, options = {}) {
   const runtimeFs = options.fs || fs;
   const directory = path.dirname(filePath);
   const tempName = options.tempName || createTempName(path.basename(filePath));
@@ -12,54 +12,61 @@ function writeJsonAtomic(filePath, value, options = {}) {
   }
   const tempPath = path.join(directory, tempName);
   let initial;
+  let tempCreated = false;
 
   try {
-    initial = readDestination(runtimeFs, filePath);
+    const readSource = options.expectedSource !== undefined;
+    initial = readDestination(runtimeFs, filePath, readSource);
     if (initial && initial.type !== 'file') {
-      throw new Error('Atomic JSON destination must be a regular file.');
+      throw new Error('Atomic write destination must be a regular file.');
     }
     if (options.expectedSource !== undefined
       && (!initial || initial.source !== options.expectedSource)) {
-      throw new Error('Atomic JSON destination changed before write.');
+      throw new Error('Atomic write destination changed before write.');
     }
 
-    const mode = initial ? initial.mode : 0o600;
-    const serialized = `${JSON.stringify(value, null, 2)}\n`;
-    runtimeFs.writeFileSync(tempPath, serialized, {
-      encoding: 'utf8',
+    const mode = initial ? initial.mode : options.mode ?? 0o600;
+    runtimeFs.writeFileSync(tempPath, contents, {
+      encoding: options.encoding || 'utf8',
       flag: 'wx',
       mode,
     });
+    tempCreated = true;
     runtimeFs.chmodSync(tempPath, mode);
 
-    const current = readDestination(runtimeFs, filePath);
+    const current = readDestination(runtimeFs, filePath, readSource);
     if (!sameDestination(initial, current)) {
-      throw new Error('Atomic JSON destination identity changed before rename.');
+      throw new Error('Atomic write destination identity changed before rename.');
     }
     if (options.expectedSource !== undefined
       && (!current || current.source !== options.expectedSource)) {
-      throw new Error('Atomic JSON destination content changed before rename.');
+      throw new Error('Atomic write destination content changed before rename.');
     }
 
     runtimeFs.renameSync(tempPath, filePath);
     return { ok: true };
   } catch (error) {
     try {
-      if (runtimeFs.existsSync(tempPath)) runtimeFs.unlinkSync(tempPath);
+      if (tempCreated && runtimeFs.existsSync(tempPath)) runtimeFs.unlinkSync(tempPath);
     } catch {}
     return { ok: false, error };
   }
 }
 
-function readDestination(runtimeFs, filePath) {
+function writeJsonAtomic(filePath, value, options = {}) {
+  return writeFileAtomic(filePath, `${JSON.stringify(value, null, 2)}\n`, options);
+}
+
+function readDestination(runtimeFs, filePath, readSource) {
   if (!runtimeFs.existsSync(filePath)) return null;
   const stat = runtimeFs.lstatSync(filePath, { bigint: true });
+  const type = stat.isFile() ? 'file' : stat.isSymbolicLink() ? 'symlink' : 'other';
   return {
     dev: stat.dev.toString(),
     ino: stat.ino.toString(),
     mode: Number(stat.mode & 0o777n),
-    source: runtimeFs.readFileSync(filePath, 'utf8'),
-    type: stat.isFile() ? 'file' : stat.isSymbolicLink() ? 'symlink' : 'other',
+    source: readSource && type === 'file' ? runtimeFs.readFileSync(filePath, 'utf8') : undefined,
+    type,
   };
 }
 
@@ -73,4 +80,4 @@ function createTempName(basename) {
   return `.${basename}.zclean-${nonce}.tmp`;
 }
 
-module.exports = { writeJsonAtomic };
+module.exports = { writeFileAtomic, writeJsonAtomic };

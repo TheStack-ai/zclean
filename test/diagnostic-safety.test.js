@@ -56,4 +56,64 @@ describe('public diagnostic safety', () => {
     assert.equal((sanitized.match(/\[local-path\]/g) || []).length, 2);
     assert.equal(sanitized, 'posix{[local-path]} windows{[local-path]}');
   });
+
+  it('fully redacts the reproduced colon Authorization Bearer value', () => {
+    const input = 'request failed: Authorization: Bearer colon-secret-123';
+
+    assert.equal(
+      sanitizeDiagnosticText(input),
+      'request failed: Authorization: Bearer [redacted]'
+    );
+  });
+
+  it('fully redacts the reproduced flag Authorization Bearer value', () => {
+    const input = 'request failed: --authorization Bearer flag-secret-456';
+
+    assert.equal(
+      sanitizeDiagnosticText(input),
+      'request failed: --authorization Bearer [redacted]'
+    );
+  });
+
+  it('fully hides the reproduced POSIX path containing spaces', () => {
+    const input = 'failed to read /Users/alice/My Projects/zclean/private report.json';
+
+    assert.equal(sanitizeDiagnosticText(input), 'failed to read [local-path]');
+  });
+
+  it('fully hides the reproduced Windows path containing spaces', () => {
+    const input = 'failed to read C:\\Users\\Bob\\My Documents\\zclean\\private report.json';
+
+    assert.equal(sanitizeDiagnosticText(input), 'failed to read [local-path]');
+  });
+
+  it('redacts the complete Bearer value for a quoted Authorization key', () => {
+    const input = '{"Authorization":"Bearer quoted-secret"}';
+
+    assert.equal(sanitizeDiagnosticText(input), '{"Authorization":"Bearer [redacted]"}');
+  });
+
+  it('redacts a quoted Bearer value in colon form', () => {
+    const input = 'Authorization: Bearer "quoted-colon-secret"';
+
+    assert.equal(sanitizeDiagnosticText(input), 'Authorization: Bearer [redacted]');
+  });
+
+  it('redacts a quoted Bearer value in flag form', () => {
+    const input = '--authorization Bearer "quoted-flag-secret"';
+
+    assert.equal(sanitizeDiagnosticText(input), '--authorization Bearer [redacted]');
+  });
+
+  it('redacts a standalone quoted Bearer value', () => {
+    const input = 'provider returned Bearer "standalone-secret"';
+
+    assert.equal(sanitizeDiagnosticText(input), 'provider returned Bearer [redacted]');
+  });
+
+  it('keeps ordinary hyphenated prose readable', () => {
+    const input = 'worker pre-flight check is retry-safe and well-formed';
+
+    assert.equal(sanitizeDiagnosticText(input), input);
+  });
 });

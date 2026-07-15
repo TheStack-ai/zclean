@@ -129,8 +129,14 @@ function isTaskMissing(err) {
 
 function isExpectedTaskDefinition(value, binPath) {
   const xml = String(value || '');
-  const command = xml.match(/<Command>([\s\S]*?)<\/Command>/i);
-  const args = xml.match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
+  const actionBlocks = [...xml.matchAll(/<Actions\b[^>]*>([\s\S]*?)<\/Actions>/gi)];
+  if (actionBlocks.length !== 1) return false;
+  const actions = actionBlocks[0][1];
+  const actionNames = [...actions.matchAll(/<(Exec|ComHandler|SendEmail|ShowMessage)\b/gi)];
+  if (actionNames.length !== 1 || actionNames[0][1].toLowerCase() !== 'exec') return false;
+  const exec = actions.match(/<Exec\b[^>]*>([\s\S]*?)<\/Exec>/i);
+  const command = exec?.[1].match(/<Command>([\s\S]*?)<\/Command>/i);
+  const args = exec?.[1].match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
   if (!command || !args) return false;
   return normalizeTaskPath(decodeXml(command[1])) === normalizeTaskPath(binPath)
     && decodeXml(args[1]).trim() === 'audit --json';

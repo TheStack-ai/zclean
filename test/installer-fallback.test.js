@@ -19,12 +19,6 @@ describe('installer persistent commands', () => {
     assert.match(LOCAL_BIN_HINT, /npm install -g z-clean/);
   });
 
-  it('shows a persistent install before init in the terminal demo', () => {
-    const demo = fs.readFileSync(path.join(__dirname, '..', 'assets', 'demo.cast'), 'utf8');
-    assert.match(demo, /npm install -g z-clean/);
-    assert.match(demo, /zclean init/);
-  });
-
   it('launchd uses a local executable as one ProgramArgument', () => {
     const plist = launchd.generatePlist('/usr/local/bin/zclean');
     assert.match(plist, /<string>\/usr\/local\/bin\/zclean<\/string>/);

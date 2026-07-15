@@ -26,15 +26,23 @@ function extractSchedulerArgs(value, platform) {
   }
 
   if (platform === 'linux') {
-    const line = value.match(/^ExecStart=(.+)$/m);
-    if (line) return parseExactCommand(line[1].trim());
-    const loaded = value.match(/argv\[\]=([^;\r\n]+)/i);
-    return loaded ? parseExactCommand(loaded[1].trim()) : null;
+    const lines = [...value.matchAll(/^ExecStart=(.+)$/gm)];
+    if (lines.length > 0) {
+      return lines.length === 1 ? parseExactCommand(lines[0][1].trim()) : null;
+    }
+    const loaded = [...value.matchAll(/argv\[\]=([^;\r\n]+)(?:;|$)/gi)];
+    return loaded.length === 1 ? parseExactCommand(loaded[0][1].trim()) : null;
   }
 
   if (platform === 'win32') {
-    const command = value.match(/<Command>([\s\S]*?)<\/Command>/i);
-    const argumentsValue = value.match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
+    const actionBlocks = [...value.matchAll(/<Actions\b[^>]*>([\s\S]*?)<\/Actions>/gi)];
+    if (actionBlocks.length !== 1) return null;
+    const actions = actionBlocks[0][1];
+    const actionNames = [...actions.matchAll(/<(Exec|ComHandler|SendEmail|ShowMessage)\b/gi)];
+    if (actionNames.length !== 1 || actionNames[0][1].toLowerCase() !== 'exec') return null;
+    const exec = actions.match(/<Exec\b[^>]*>([\s\S]*?)<\/Exec>/i);
+    const command = exec?.[1].match(/<Command>([\s\S]*?)<\/Command>/i);
+    const argumentsValue = exec?.[1].match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
     if (!command || !argumentsValue) return null;
     const argumentsText = decodeXml(argumentsValue[1]).trim();
     if (argumentsText !== 'audit --json') return null;

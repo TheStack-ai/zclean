@@ -64,6 +64,47 @@ describe('workspace cache cleanup safety', () => {
     }
   });
 
+  it('does not recursively delete unrelated data replacing the verified quarantine path', () => {
+    const fixture = makeFixture();
+    try {
+      const workspace = path.join(fixture.root, 'workspace');
+      const cachePath = path.join(workspace, '.turbo');
+      const movedCachePath = path.join(fixture.root, 'moved-cache');
+      const unrelatedPath = path.join(workspace, 'unrelated-data');
+      writeFile(path.join(cachePath, 'state.json'), 'cache-data');
+      writeFile(path.join(unrelatedPath, 'state.json'), 'must-survive');
+      const candidates = scanCacheTargets(workspace);
+      const scannedCachePath = candidates.find((candidate) => candidate.relativePath === '.turbo').absolutePath;
+      let quarantinedPath = null;
+      let swapped = false;
+      let recursiveRemovalRequested = false;
+
+      const result = cleanCacheTargets(candidates, {
+        renameSync(source, destination) {
+          fs.renameSync(source, destination);
+          if (source === scannedCachePath) quarantinedPath = destination;
+        },
+        rmSync(target, options) {
+          recursiveRemovalRequested ||= Boolean(options?.recursive);
+          if (!swapped) {
+            swapped = true;
+            fs.renameSync(quarantinedPath, movedCachePath);
+            fs.renameSync(unrelatedPath, quarantinedPath);
+          }
+          fs.rmSync(target, options);
+        },
+      });
+
+      assert.equal(swapped, true);
+      assert.equal(fs.readFileSync(path.join(cachePath, 'state.json'), 'utf-8'), 'must-survive');
+      assert.equal(recursiveRemovalRequested, false);
+      assert.equal(result.deleted.length, 0);
+      assert.equal(result.failed.length, 1);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
   it('skips a cache path whose type changes after scan', () => {
     const fixture = makeFixture();
     try {

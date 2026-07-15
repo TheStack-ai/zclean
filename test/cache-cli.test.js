@@ -2,9 +2,12 @@
 
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
+const { spawnSync } = require('node:child_process');
 const fs = require('fs');
 const path = require('path');
 const { cleanupFixture, makeFixture, parseStdoutJson, runCli } = require('./cli-helpers');
+
+const bin = path.join(__dirname, '..', 'bin', 'zclean.js');
 
 describe('workspace cache CLI', () => {
   it('prints safe cache JSON without deleting unless --yes is passed', () => {
@@ -58,6 +61,63 @@ describe('workspace cache CLI', () => {
       assert.equal(fs.existsSync(path.join(workspace, 'node_modules', '.cache')), false);
       assert.equal(fs.existsSync(keepFile), true);
       assert.equal(JSON.stringify(report).includes(workspace), false);
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('rejects supplied --path values without a non-empty directory before cleanup', () => {
+    const fixture = makeFixture();
+    try {
+      const workspace = path.join(fixture.root, 'workspace');
+      const sentinel = path.join(workspace, '.turbo', 'sentinel.txt');
+
+      for (const pathArgument of ['--path', '--path=', '--path=   ']) {
+        writeFile(sentinel, 'must-survive');
+
+        const result = spawnSync(process.execPath, [
+          bin,
+          'cache',
+          pathArgument,
+          '--yes',
+          '--json',
+        ], {
+          cwd: workspace,
+          env: fixture.env,
+          encoding: 'utf-8',
+          timeout: 10000,
+        });
+
+        assert.equal(fs.existsSync(sentinel), true, `${pathArgument} deleted cwd cache data`);
+        assert.equal(result.status, 1, `${pathArgument}: ${result.stderr}`);
+        assert.equal(result.stderr, '');
+        assert.equal(fs.readFileSync(sentinel, 'utf-8'), 'must-survive');
+        const report = parseStdoutJson(result);
+        assert.equal(report.status, 'blocked');
+        assert.equal(report.errors[0]?.code, 'cache-root-invalid');
+      }
+    } finally {
+      cleanupFixture(fixture);
+    }
+  });
+
+  it('uses cwd intentionally when --path is omitted', () => {
+    const fixture = makeFixture();
+    try {
+      const workspace = path.join(fixture.root, 'workspace');
+      const sentinel = path.join(workspace, '.turbo', 'sentinel.txt');
+      writeFile(sentinel, 'cache-data');
+
+      const result = spawnSync(process.execPath, [bin, 'cache', '--yes', '--json'], {
+        cwd: workspace,
+        env: fixture.env,
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+
+      assert.equal(result.status, 0, result.stderr);
+      assert.equal(parseStdoutJson(result).summary.deleted, 1);
+      assert.equal(fs.existsSync(sentinel), false);
     } finally {
       cleanupFixture(fixture);
     }

@@ -5,6 +5,7 @@ const path = require('path');
 const os = require('os');
 const { execFileSync } = require('child_process');
 const { LOCAL_BIN_HINT, quoteSystemdArg, resolveZcleanBin } = require('./bin-path');
+const { writeFileAtomic } = require('./settings-write');
 
 const SYSTEMD_USER_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
 const SERVICE_NAME = 'zclean';
@@ -77,8 +78,10 @@ function installSystemd(options = {}) {
   try {
     fs.mkdirSync(path.dirname(servicePath), { recursive: true });
     fs.mkdirSync(path.dirname(timerPath), { recursive: true });
-    fs.writeFileSync(servicePath, service, 'utf-8');
-    fs.writeFileSync(timerPath, timer, 'utf-8');
+    const serviceWritten = writeFileAtomic(servicePath, service, { mode: 0o644 });
+    if (!serviceWritten.ok) throw serviceWritten.error;
+    const timerWritten = writeFileAtomic(timerPath, timer, { mode: 0o644 });
+    if (!timerWritten.ok) throw timerWritten.error;
   } catch {
     return {
       installed: false,
@@ -144,9 +147,9 @@ function installSystemd(options = {}) {
 }
 
 function isExpectedLoadedCommand(value, binPath) {
-  const match = String(value || '').match(/argv\[\]=([^;\r\n]+)(?:;|$)/i);
-  if (!match) return false;
-  const command = match[1].trim();
+  const actions = [...String(value || '').matchAll(/argv\[\]=([^;\r\n]+)(?:;|$)/gi)];
+  if (actions.length !== 1) return false;
+  const command = actions[0][1].trim();
   return command === `${binPath} audit --json` || command === `"${binPath}" audit --json`;
 }
 

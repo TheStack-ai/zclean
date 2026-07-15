@@ -44,11 +44,12 @@ describe('Unix kill verification', () => {
     const result = verifyProcess({
       pid: 3210,
       cmd: '  node /tmp/worker.js --mode=scan  ',
-      startTime: null,
+      startTime: '2024-01-01T00:00:00.000Z',
     }, {
       platform: 'linux',
       execSync(command) {
         if (command.includes('ps -o command=')) return '\nnode /tmp/worker.js --mode=scan\r\n';
+        if (command.includes('ps -o lstart=')) return '2024-01-01T00:00:00.000Z';
         throw new Error(`unexpected command: ${command}`);
       },
     });
@@ -203,7 +204,11 @@ describe('Unix kill verification', () => {
   });
 
   it('fails closed when the identity query fails after SIGTERM', () => {
-    const proc = { pid: 3210, cmd: 'node /tmp/worker.js', startTime: null };
+    const proc = {
+      pid: 3210,
+      cmd: 'node /tmp/worker.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
     const signals = [];
     let commandReads = 0;
     const result = killProcess(proc, 1000, {
@@ -214,6 +219,7 @@ describe('Unix kill verification', () => {
           if (commandReads === 1) return proc.cmd;
           throw new Error('ps provider unavailable');
         }
+        if (command.includes('ps -o lstart=')) return proc.startTime;
         throw new Error(`unexpected command: ${command}`);
       },
       kill(pid, signal) {

@@ -31,7 +31,7 @@ describe('Windows kill verification', () => {
     const result = verifyProcess({
       pid: 3210,
       cmd: '  node C:\\agent\\server.js --mode=scan  ',
-      startTime: null,
+      startTime: '2024-01-01T00:00:00.000Z',
     }, {
       platform: 'win32',
       execSync(command) {
@@ -39,6 +39,7 @@ describe('Windows kill verification', () => {
           return JSON.stringify({
             ProcessId: 3210,
             CommandLine: '\r\nnode C:\\agent\\server.js --mode=scan\r\n',
+            CreationDate: '2024-01-01T00:00:00.000Z',
           });
         }
         throw new Error(`unexpected command: ${command}`);
@@ -144,7 +145,7 @@ describe('Windows kill verification', () => {
     const proc = {
       pid: 3210,
       cmd: 'node C:\\agent\\server.js',
-      startTime: null,
+      startTime: '2024-01-01T00:00:00.000Z',
     };
     const calls = [];
     let killed = false;
@@ -160,6 +161,7 @@ describe('Windows kill verification', () => {
           return killed ? '[]' : JSON.stringify({
             ProcessId: 3210,
             CommandLine: proc.cmd,
+            CreationDate: proc.startTime,
           });
         }
         if (command.startsWith('timeout /T')) return '';
@@ -223,7 +225,11 @@ describe('Windows kill verification', () => {
   });
 
   it('fails closed when the identity query fails after taskkill', () => {
-    const proc = { pid: 3210, cmd: 'node C:\\agent\\server.js', startTime: null };
+    const proc = {
+      pid: 3210,
+      cmd: 'node C:\\agent\\server.js',
+      startTime: '2024-01-01T00:00:00.000Z',
+    };
     const calls = [];
     let processReads = 0;
     const result = killProcess(proc, 1000, {
@@ -234,7 +240,11 @@ describe('Windows kill verification', () => {
         if (command.includes('Get-CimInstance')) {
           processReads += 1;
           if (processReads === 1) {
-            return JSON.stringify({ ProcessId: 3210, CommandLine: proc.cmd });
+            return JSON.stringify({
+              ProcessId: 3210,
+              CommandLine: proc.cmd,
+              CreationDate: proc.startTime,
+            });
           }
           throw new Error('CIM provider unavailable');
         }
@@ -247,4 +257,5 @@ describe('Windows kill verification', () => {
     assert.match(result.error, /query|unverified|identity/i);
     assert.equal(calls.includes('taskkill /F /PID 3210'), false);
   });
+
 });

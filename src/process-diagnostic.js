@@ -17,25 +17,44 @@ function diagnosticMessage(error) {
 function sanitizeDiagnosticText(value) {
   return String(value || '')
     .replace(
-      /(["'])(?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*\1\s*:\s*(?:"[^"]*"|'[^']*'|[^,\s}\]]+)/gi,
-      '[credential]:[redacted]'
+      /(["'])((?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*)\1(\s*:\s*)((?:"[^"]*"|'[^']*'|Bearer\s+[^,\s}\]]+|[^,\s}\]]+))/gi,
+      (match, quote, key, separator, credential) => {
+        const value = credential[0] === '"' || credential[0] === "'"
+          ? credential.slice(1, -1)
+          : credential;
+        if (/^authorization$/i.test(key) && /^Bearer\s+/i.test(value)) {
+          const valueQuote = credential[0] === '"' || credential[0] === "'"
+            ? credential[0]
+            : '';
+          return quote + key + quote + separator + valueQuote + 'Bearer [redacted]' + valueQuote;
+        }
+        return '[credential]:[redacted]';
+      }
     )
     .replace(
-      /(^|[\s,{([])((?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*)\s*:\s*(?:"[^"]*"|'[^']*'|[^,\s}\]]+)/gi,
-      '$1$2: [redacted]'
+      /(^|[\s,{([])((?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*)(\s*:\s*)((?:"[^"]*"|'[^']*'|Bearer\s+[^,\s}\]]+|[^,\s}\]]+))/gi,
+      (match, prefix, key, separator, credential) =>
+        prefix + key + separator + (/^Bearer\s+/i.test(credential) ? 'Bearer ' : '') + '[redacted]'
     )
     .replace(
-      /(^|[\s("'=])(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      '$1$2=[redacted]'
+      /(^|[\s("'=])(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(\s*=\s*|\s+)((?:"[^"]*"|'[^']*'|Bearer\s+[^\s,;]+|[^\s,;]+))/gi,
+      (match, prefix, flag, separator, credential) =>
+        prefix + flag + separator + (/^Bearer\s+/i.test(credential) ? 'Bearer ' : '') + '[redacted]'
     )
-    .replace(/\bBearer\s+[^\s,;]+/gi, 'Bearer [redacted]')
+    .replace(/\bBearer\s+(?:"[^"]*"|'[^']*'|[^\s,;"'{}\[\]]+)/gi, 'Bearer [redacted]')
     .replace(
       /\b(?:[A-Z0-9]+[_-])*(?:API[_-]?KEY|ACCESS[_-]?TOKEN|AUTH(?:ORIZATION)?(?:[_-]?TOKEN)?|COOKIE|PASSWORD|PASSWD|SECRET|TOKEN)(?:[_-][A-Z0-9]+)*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       (match) => `${match.split('=')[0]}=[redacted]`
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')
-    .replace(/(^|[\s("'=:;,\[{])(?:[A-Za-z]:\\|\\\\)[^\s"'\]}]+/g, '$1[local-path]')
-    .replace(/(^|[\s("'=:;,\[{])\/(?!\/)(?:[^\s"'\/\]}]+\/)*[^\s"'\]}]+/g, '$1[local-path]')
+    .replace(
+      /(^|[\s("'=:;,\[{])(?:[A-Za-z]:\\|\\\\)[^"'{}\[\],;)]*?(?=$|["'{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
+      '$1[local-path]'
+    )
+    .replace(
+      /(^|[\s("'=:;,\[{])\/(?!\/)[^"'{}\[\],;)]*?(?=$|["'{}\[\],;)]|\s+--|\s+(?:[A-Za-z]:\\|\/))/g,
+      '$1[local-path]'
+    )
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);

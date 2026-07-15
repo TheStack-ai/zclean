@@ -18,7 +18,7 @@ const { runHistory, runProtect } = require('../src/commands/trust');
 const { uninstallScheduler } = require('../src/commands/scheduler');
 const { runDoctor } = require('../src/doctor');
 const { runAudit } = require('../src/audit');
-const { runCache } = require('../src/cache');
+const { runCacheCommand } = require('../src/cache');
 const { getCustomPatternError, normalizeCustomPattern } = require('../src/detector/patterns');
 const { runInit } = require('../src/commands/init');
 
@@ -97,7 +97,8 @@ async function main() {
       return cmdAudit(config, 'audit');
 
     case 'cache':
-      return cmdCache();
+      process.exitCode = runCacheCommand(flags).exitCode;
+      return;
 
     case null:
       // Default: scan (dry-run unless --yes)
@@ -234,15 +235,6 @@ function cmdAudit(config, commandName = 'audit') {
   const sessionPid = parseSessionPidFlag();
   const report = runAudit(scanConfig, { json: Boolean(flags.json), sessionPid, commandName });
   if (!report.risk.enumerationComplete) process.exitCode = 1;
-}
-
-function cmdCache() {
-  const report = runCache({
-    root: typeof flags.path === 'string' ? flags.path : process.cwd(),
-    yes: Boolean(flags.yes || flags.y),
-    json: Boolean(flags.json),
-  });
-  process.exitCode = report.exitCode;
 }
 
 function parseSessionPidFlag() {

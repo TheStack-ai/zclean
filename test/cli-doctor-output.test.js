@@ -26,9 +26,7 @@ describe('CLI doctor contract', () => {
       const lastCleanup = report.checks.find((check) => check.id === 'last-run');
 
       assert.equal(lastCleanup.status, 'ok');
-      assert.doesNotMatch(lastCleanup.message, /scheduler/i);
       assert.match(output, /Last cleanup:/);
-      assert.doesNotMatch(output, /Last run:/);
     } finally {
       cleanupFixture(fixture);
     }

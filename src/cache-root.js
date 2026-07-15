@@ -6,7 +6,7 @@ const path = require('node:path');
 const { canonicalDirectoryState } = require('./cache-containment');
 
 function validateCacheRoot(value) {
-  if (typeof value !== 'string') {
+  if (typeof value !== 'string' || value.trim() === '') {
     return invalidRoot('cache-root-invalid', 'Workspace cache root must be a directory path.');
   }
 
