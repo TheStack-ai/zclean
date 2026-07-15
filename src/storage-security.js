@@ -2,50 +2,67 @@
 
 const fs = require('fs');
 const path = require('path');
+const { randomBytes } = require('crypto');
 
 const SENSITIVE_HISTORY_FIELDS = ['args', 'argv', 'cmd', 'command', 'commandLine'];
-let tempCounter = 0;
 
 function secureDirectory(directory) {
   if (!fs.existsSync(directory)) {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
   }
-  const stat = fs.lstatSync(directory);
-  if (stat.isSymbolicLink() || !stat.isDirectory()) {
-    throw unsafeStorageError('Private storage root must be a real directory, not a symbolic link.');
-  }
+  const state = directoryState(directory);
   if (process.platform !== 'win32') {
     const fd = fs.openSync(directory, fs.constants.O_RDONLY | directoryFlag() | noFollowFlag());
     try {
+      const opened = identity(fs.fstatSync(fd, { bigint: true }));
+      if (!sameIdentity(state.identity, opened)) {
+        throw unsafeStorageError('Private storage root changed while it was being opened.');
+      }
       fs.fchmodSync(fd, 0o700);
     } finally {
       fs.closeSync(fd);
     }
   }
+  return state;
 }
 
 function writePrivateFile(file, content) {
   const directory = path.dirname(file);
-  secureDirectory(directory);
+  const directoryBefore = secureDirectory(directory);
   const before = destinationState(file);
   const tempFile = path.join(
     directory,
-    `.${path.basename(file)}.${process.pid}.${tempCounter += 1}.tmp`
+    `.${path.basename(file)}.${process.pid}.${randomBytes(12).toString('hex')}.tmp`
   );
   let fd = null;
+  let tempIdentity = null;
   try {
     fd = fs.openSync(
       tempFile,
       fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | noFollowFlag(),
       0o600
     );
+    const tempStat = fs.fstatSync(fd, { bigint: true });
+    if (!tempStat.isFile()) throw unsafeStorageError('Private storage temporary file is not regular.');
+    tempIdentity = identity(tempStat);
+    assertDirectoryUnchanged(directory, directoryBefore);
     fs.writeFileSync(fd, content, { encoding: 'utf-8' });
     if (process.platform !== 'win32') fs.fchmodSync(fd, 0o600);
     fs.fsyncSync(fd);
     fs.closeSync(fd);
     fd = null;
     assertDestinationUnchanged(file, before);
+    assertDirectoryUnchanged(directory, directoryBefore);
+    const staged = destinationState(tempFile);
+    if (!staged || !sameIdentity(staged.identity, tempIdentity)) {
+      throw unsafeStorageError('Private storage temporary file changed before commit.');
+    }
     fs.renameSync(tempFile, file);
+    assertDirectoryUnchanged(directory, directoryBefore);
+    const committed = destinationState(file);
+    if (!committed || !sameIdentity(committed.identity, tempIdentity)) {
+      throw unsafeStorageError('Private storage destination changed during commit.');
+    }
   } finally {
     if (fd !== null) fs.closeSync(fd);
     try { fs.unlinkSync(tempFile); } catch {}
@@ -54,13 +71,38 @@ function writePrivateFile(file, content) {
 }
 
 function appendPrivateFile(file, content) {
-  let existing = '';
+  const directory = path.dirname(file);
+  const directoryBefore = secureDirectory(directory);
+  const before = destinationState(file);
+  let fd = null;
   try {
-    existing = readPrivateFile(file);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+    fd = fs.openSync(
+      file,
+      fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_CREAT | noFollowFlag(),
+      0o600
+    );
+    const openedStat = fs.fstatSync(fd, { bigint: true });
+    if (!openedStat.isFile()) throw unsafeStorageError('Private history destination is not a regular file.');
+    const openedIdentity = identity(openedStat);
+    assertDirectoryUnchanged(directory, directoryBefore);
+    const current = destinationState(file);
+    if (!current || !sameIdentity(current.identity, openedIdentity)) {
+      throw unsafeStorageError('Private history destination changed while it was being opened.');
+    }
+    if (before && !sameIdentity(before.identity, openedIdentity)) {
+      throw unsafeStorageError('Private history destination changed before append.');
+    }
+    if (process.platform !== 'win32') fs.fchmodSync(fd, 0o600);
+    const buffer = Buffer.from(String(content), 'utf8');
+    const written = fs.writeSync(fd, buffer, 0, buffer.length, null);
+    if (written !== buffer.length) {
+      throw unsafeStorageError('Private history append was incomplete.');
+    }
+    fs.fsyncSync(fd);
+    assertDirectoryUnchanged(directory, directoryBefore);
+  } finally {
+    if (fd !== null) fs.closeSync(fd);
   }
-  writePrivateFile(file, existing + content);
 }
 
 function secureFile(file) {
@@ -140,6 +182,21 @@ function destinationState(file) {
     throw unsafeStorageError('Private storage destination must be a regular file, not a symbolic link.');
   }
   return { identity: identity(stat) };
+}
+
+function directoryState(directory) {
+  const stat = fs.lstatSync(directory, { bigint: true });
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    throw unsafeStorageError('Private storage root must be a real directory, not a symbolic link.');
+  }
+  return { identity: identity(stat) };
+}
+
+function assertDirectoryUnchanged(directory, before) {
+  const current = directoryState(directory);
+  if (!sameIdentity(before.identity, current.identity)) {
+    throw unsafeStorageError('Private storage root changed during the operation.');
+  }
 }
 
 function assertDestinationUnchanged(file, before) {

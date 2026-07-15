@@ -234,4 +234,3 @@ function runtimeOptions(options = {}) {
 }
 
 module.exports = { killProcess, verifyProcess };
-

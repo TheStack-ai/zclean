@@ -11,6 +11,9 @@ function inspectSchedulerDefinition(value, platform) {
   if (!args || args.length !== 3 || args[1] !== 'audit' || args[2] !== '--json') {
     return { safe: false, reason: 'command is not the report-only audit contract' };
   }
+  if (!isZcleanExecutable(args[0])) {
+    return { safe: false, reason: 'scheduled executable is not zclean' };
+  }
   return { safe: true };
 }
 
@@ -24,15 +27,18 @@ function extractSchedulerArgs(value, platform) {
 
   if (platform === 'linux') {
     const line = value.match(/^ExecStart=(.+)$/m);
-    return line ? parseExactCommand(line[1].trim()) : null;
+    if (line) return parseExactCommand(line[1].trim());
+    const loaded = value.match(/argv\[\]=([^;\r\n]+)/i);
+    return loaded ? parseExactCommand(loaded[1].trim()) : null;
   }
 
   if (platform === 'win32') {
-    for (const line of value.split(/\r?\n/)) {
-      const candidate = line.includes(':') ? line.slice(line.indexOf(':') + 1).trim() : line.trim();
-      const args = parseExactCommand(candidate);
-      if (args) return args;
-    }
+    const command = value.match(/<Command>([\s\S]*?)<\/Command>/i);
+    const argumentsValue = value.match(/<Arguments>([\s\S]*?)<\/Arguments>/i);
+    if (!command || !argumentsValue) return null;
+    const argumentsText = decodeXml(argumentsValue[1]).trim();
+    if (argumentsText !== 'audit --json') return null;
+    return [decodeXml(command[1]).trim(), 'audit', '--json'];
   }
   return null;
 }
@@ -40,6 +46,12 @@ function extractSchedulerArgs(value, platform) {
 function parseExactCommand(value) {
   const match = value.match(/^("(?:\\.|[^"])*"|'[^']*'|\S+)\s+(\S+)\s+(\S+)$/);
   return match ? [match[1], match[2], match[3]] : null;
+}
+
+function isZcleanExecutable(value) {
+  const unquoted = String(value || '').trim().replace(/^(?:"([\s\S]*)"|'([\s\S]*)')$/, '$1$2');
+  const basename = unquoted.split(/[\\/]/).pop().toLowerCase();
+  return basename === 'zclean' || basename === 'zclean.cmd' || basename === 'zclean.exe';
 }
 
 function decodeXml(value) {

@@ -90,18 +90,34 @@ function loadConfig() {
   const configFile = getConfigFile();
   if (fs.existsSync(configFile)) {
     secureFile(configFile);
+    let raw;
     try {
-      const raw = readPrivateFile(configFile);
-      const userConfig = JSON.parse(raw);
-      const config = { ...DEFAULT_CONFIG, ...userConfig };
-      if (!(parseDuration(config.maxAge) > 0)) config.maxAge = DEFAULT_CONFIG.maxAge;
-      return config;
-    } catch {
-      // Corrupted config — use defaults
-      return { ...DEFAULT_CONFIG };
+      raw = readPrivateFile(configFile);
+    } catch (error) {
+      if (error?.code === 'ZCLEAN_UNSAFE_STORAGE') throw error;
+      throw configLoadError('ZCLEAN_CONFIG_UNREADABLE', 'Config could not be read safely.', error);
     }
+    let userConfig;
+    try {
+      userConfig = JSON.parse(raw);
+    } catch (error) {
+      throw configLoadError(
+        'ZCLEAN_INVALID_CONFIG',
+        'Config JSON is invalid; cleanup was stopped so whitelist rules are not ignored.',
+        error
+      );
+    }
+    const config = { ...DEFAULT_CONFIG, ...userConfig };
+    if (!(parseDuration(config.maxAge) > 0)) config.maxAge = DEFAULT_CONFIG.maxAge;
+    return config;
   }
   return { ...DEFAULT_CONFIG };
+}
+
+function configLoadError(code, message, cause) {
+  const error = new Error(message, { cause });
+  error.code = code;
+  return error;
 }
 
 /**

@@ -21,6 +21,10 @@ function sanitizeDiagnosticText(value) {
       '[credential]:[redacted]'
     )
     .replace(
+      /(^|[\s,{([])((?:[A-Z0-9]+[_-])*(?:api[_-]?key|access[_-]?token|auth(?:orization)?(?:[_-]?token)?|cookie|password|passwd|secret|token)(?:[_-][A-Z0-9]+)*)\s*:\s*(?:"[^"]*"|'[^']*'|[^,\s}\]]+)/gi,
+      '$1$2: [redacted]'
+    )
+    .replace(
       /(^|[\s("'=])(--?(?:api[-_]?key|access[-_]?token|auth(?:orization)?|cookie|password|passwd|secret|token)\b)(?:\s*=\s*|\s+)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
       '$1$2=[redacted]'
     )
@@ -30,8 +34,8 @@ function sanitizeDiagnosticText(value) {
       (match) => `${match.split('=')[0]}=[redacted]`
     )
     .replace(/([?&](?:api[-_]?key|access[-_]?token|password|secret|token)=)[^&\s]+/gi, '$1[redacted]')
-    .replace(/(^|[\s("'=])(?:[A-Za-z]:\\|\\\\)[^\s"']+/g, '$1[local-path]')
-    .replace(/(^|[\s("'=])\/(?:[^\s"'\/]+\/)*[^\s"']+/g, '$1[local-path]')
+    .replace(/(^|[\s("'=:;,])(?:[A-Za-z]:\\|\\\\)[^\s"']+/g, '$1[local-path]')
+    .replace(/(^|[\s("'=:;,])\/(?!\/)(?:[^\s"'\/]+\/)*[^\s"']+/g, '$1[local-path]')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 500);

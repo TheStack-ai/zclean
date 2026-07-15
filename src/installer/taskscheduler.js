@@ -29,12 +29,14 @@ function formatTaskRunCommand(binPath) {
  *
  * @returns {{ installed: boolean, message: string }}
  */
-function installTaskScheduler() {
-  if (os.platform() !== 'win32') {
+function installTaskScheduler(options = {}) {
+  const platform = options.platform || os.platform();
+  const run = options.execFileSync || execFileSync;
+  if (platform !== 'win32') {
     return { installed: false, message: 'Task Scheduler is Windows only.' };
   }
 
-  const binPath = resolveZcleanBin();
+  const binPath = options.binPath || resolveZcleanBin();
   if (!binPath) {
     return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
   }
@@ -42,17 +44,29 @@ function installTaskScheduler() {
   const args = buildCreateTaskArgs(binPath);
 
   try {
-    execFileSync('schtasks', args, { encoding: 'utf-8', timeout: 10000 });
+    run('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], schedulerOptions());
+  } catch (error) {
+    if (!isTaskMissing(error)) {
+      return {
+        installed: false,
+        active: false,
+        message: 'Could not remove the existing scheduled task; it was preserved for a later retry.',
+      };
+    }
+  }
+
+  try {
+    run('schtasks', args, schedulerOptions());
     return {
       installed: true,
       active: true,
       message: `Task Scheduler task created: ${TASK_NAME} (hourly)`,
     };
-  } catch (err) {
+  } catch {
     return {
       installed: false,
       active: false,
-      message: `Failed to create scheduled task: ${err.message}\nTry running as administrator.`,
+      message: 'The old task was removed, but the report-only task could not be created. Try running as administrator.',
     };
   }
 }
@@ -70,10 +84,7 @@ function removeTaskScheduler(options = {}) {
   }
 
   try {
-    run('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], {
-      encoding: 'utf-8',
-      timeout: 10000,
-    });
+    run('schtasks', ['/delete', '/TN', TASK_NAME, '/F'], schedulerOptions());
     return {
       removed: true,
       failed: false,
@@ -89,6 +100,10 @@ function removeTaskScheduler(options = {}) {
       message: `Failed to remove task: ${err.message}`,
     };
   }
+}
+
+function schedulerOptions() {
+  return { encoding: 'utf-8', timeout: 10000 };
 }
 
 function isTaskMissing(err) {

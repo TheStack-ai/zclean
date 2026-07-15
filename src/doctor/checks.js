@@ -186,6 +186,25 @@ function checkSystemd(runtime) {
 
   const definition = inspectSchedulerDefinition(readSchedulerFile(servicePath), 'linux');
   if (!definition.safe) return schedulerDefinitionWarning('linux', definition.reason);
+  let loadedDefinition;
+  let timerState;
+  try {
+    loadedDefinition = runtime.execSync(
+      'systemctl --user show zclean.service --property=ExecStart --value',
+      { encoding: 'utf-8', timeout: 5000 }
+    );
+    timerState = runtime.execSync(
+      'systemctl --user is-active zclean.timer',
+      { encoding: 'utf-8', timeout: 5000 }
+    );
+  } catch {
+    return schedulerDefinitionWarning('linux', 'loaded timer state could not be verified');
+  }
+  const loaded = inspectSchedulerDefinition(loadedDefinition, 'linux');
+  if (!loaded.safe) return schedulerDefinitionWarning('linux', loaded.reason);
+  if (String(timerState).trim() !== 'active') {
+    return schedulerDefinitionWarning('linux', 'report-only timer is not active');
+  }
   return {
     id: 'scheduler',
     status: 'ok',
@@ -197,7 +216,7 @@ function checkSystemd(runtime) {
 function checkTaskScheduler(runtime) {
   try {
     const output = runtime.execSync(
-      'schtasks /query /TN "zclean-hourly" /V /FO LIST',
+      'schtasks /query /TN "zclean-hourly" /XML',
       { encoding: 'utf-8', timeout: 5000 }
     );
     const definition = inspectSchedulerDefinition(output, 'win32');

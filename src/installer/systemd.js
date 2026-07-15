@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execFileSync, execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { LOCAL_BIN_HINT, quoteSystemdArg, resolveZcleanBin } = require('./bin-path');
 
 const SYSTEMD_USER_DIR = path.join(os.homedir(), '.config', 'systemd', 'user');
@@ -51,38 +51,52 @@ WantedBy=timers.target
  *
  * @returns {{ installed: boolean, message: string }}
  */
-function installSystemd() {
-  if (os.platform() !== 'linux') {
+function installSystemd(options = {}) {
+  const platform = options.platform || os.platform();
+  const servicePath = options.servicePath || SERVICE_PATH;
+  const timerPath = options.timerPath || TIMER_PATH;
+  const run = options.execFileSync || execFileSync;
+  if (platform !== 'linux') {
     return { installed: false, message: 'systemd is Linux only.' };
   }
 
-  const binPath = resolveZcleanBin();
+  const binPath = options.binPath || resolveZcleanBin();
   if (!binPath) {
     return { installed: false, message: `Local zclean executable not found. ${LOCAL_BIN_HINT}` };
   }
 
-  // Ensure systemd user directory exists
-  if (!fs.existsSync(SYSTEMD_USER_DIR)) {
-    fs.mkdirSync(SYSTEMD_USER_DIR, { recursive: true });
+  try {
+    stopExistingTimer(run);
+  } catch {
+    return {
+      installed: false,
+      active: false,
+      message: 'Could not stop the existing systemd timer; unit files were preserved for a later retry.',
+    };
   }
 
-  // Write service and timer files
-  fs.writeFileSync(SERVICE_PATH, generateService(binPath), 'utf-8');
-  fs.writeFileSync(TIMER_PATH, generateTimer(), 'utf-8');
+  try {
+    fs.mkdirSync(path.dirname(servicePath), { recursive: true });
+    fs.mkdirSync(path.dirname(timerPath), { recursive: true });
+    fs.writeFileSync(servicePath, generateService(binPath), 'utf-8');
+    fs.writeFileSync(timerPath, generateTimer(), 'utf-8');
+  } catch {
+    return {
+      installed: false,
+      active: false,
+      message: 'The old timer was stopped, but the report-only systemd files could not be written.',
+    };
+  }
 
-  // Reload and enable
   const messages = [];
   let active = true;
   try {
-    execSync('systemctl --user daemon-reload', { encoding: 'utf-8', timeout: 5000 });
-    execSync(`systemctl --user enable --now ${SERVICE_NAME}.timer`, {
-      encoding: 'utf-8',
-      timeout: 5000,
-    });
-    messages.push(`Timer installed and enabled: ${TIMER_PATH}`);
-  } catch (err) {
+    run('systemctl', ['--user', 'daemon-reload'], systemctlOptions());
+    run('systemctl', ['--user', 'enable', '--now', `${SERVICE_NAME}.timer`], systemctlOptions());
+    messages.push(`Timer installed and enabled: ${timerPath}`);
+  } catch {
     active = false;
-    messages.push(`Files written but systemctl failed: ${err.message}`);
+    messages.push('Report-only files were written, but systemctl could not activate them.');
     messages.push(`Try manually: systemctl --user enable --now ${SERVICE_NAME}.timer`);
   }
 
@@ -101,6 +115,14 @@ function installSystemd() {
     active,
     message: messages.join('\n'),
   };
+}
+
+function stopExistingTimer(run) {
+  try {
+    run('systemctl', ['--user', 'disable', '--now', `${SERVICE_NAME}.timer`], systemctlOptions());
+  } catch (error) {
+    if (!isSystemdUnitMissing(error)) throw error;
+  }
 }
 
 /**
