@@ -221,4 +221,30 @@ describe('Windows kill verification', () => {
     assert.match(result.error, /identity/i);
     assert.equal(calls.includes('taskkill /F /PID 3210'), false);
   });
+
+  it('fails closed when the identity query fails after taskkill', () => {
+    const proc = { pid: 3210, cmd: 'node C:\\agent\\server.js', startTime: null };
+    const calls = [];
+    let processReads = 0;
+    const result = killProcess(proc, 1000, {
+      platform: 'win32',
+      now: () => 1000,
+      execSync(command) {
+        calls.push(command);
+        if (command.includes('Get-CimInstance')) {
+          processReads += 1;
+          if (processReads === 1) {
+            return JSON.stringify({ ProcessId: 3210, CommandLine: proc.cmd });
+          }
+          throw new Error('CIM provider unavailable');
+        }
+        if (command === 'taskkill /PID 3210') return '';
+        throw new Error(`unexpected command: ${command}`);
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /query|unverified|identity/i);
+    assert.equal(calls.includes('taskkill /F /PID 3210'), false);
+  });
 });

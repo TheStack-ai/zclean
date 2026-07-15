@@ -5,7 +5,7 @@ const {
   normalizePid,
   parseCIMOutput,
   parseCIMResult,
-  parseJsonRows,
+  parseJsonRowsResult,
   parseWindowsDate,
   parseWMICResult,
   partialParseDiagnostics,
@@ -91,23 +91,21 @@ function readWindowsProcess(pid, runtime) {
   const safePid = normalizePid(pid);
   if (!safePid) return null;
 
-  let output;
-  try {
-    output = runtime.execSync(
-      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress"`,
-      {
-        encoding: 'utf-8',
-        timeout: 5000,
-        maxBuffer: 1024 * 1024,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      }
-    );
-  } catch {
-    return null;
-  }
+  const output = runtime.execSync(
+    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress"`,
+    {
+      encoding: 'utf-8',
+      timeout: 5000,
+      maxBuffer: 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }
+  );
 
-  const rows = parseJsonRows(String(output || ''));
-  const row = rows.find((item) => Number(readField(item, 'ProcessId')) === safePid);
+  const parsed = parseJsonRowsResult(String(output || ''));
+  if (parsed.invalid) {
+    throw new Error('CIM returned invalid process identity data.');
+  }
+  const row = parsed.rows.find((item) => Number(readField(item, 'ProcessId')) === safePid);
   if (!row) return null;
 
   return {
@@ -131,7 +129,9 @@ function windowsProcessExists(pid, runtime) {
         stdio: ['ignore', 'pipe', 'pipe'],
       }
     );
-    return parseJsonRows(String(output || '')).some((row) => Number(readField(row, 'ProcessId')) === safePid);
+    const parsed = parseJsonRowsResult(String(output || ''));
+    if (parsed.invalid) return null;
+    return parsed.rows.some((row) => Number(readField(row, 'ProcessId')) === safePid);
   } catch {
     return null;
   }

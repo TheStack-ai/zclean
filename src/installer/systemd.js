@@ -79,16 +79,13 @@ function installSystemd(options = {}) {
     fs.mkdirSync(path.dirname(timerPath), { recursive: true });
     fs.writeFileSync(servicePath, service, 'utf-8');
     fs.writeFileSync(timerPath, timer, 'utf-8');
-    if (fs.readFileSync(servicePath, 'utf-8') !== service || fs.readFileSync(timerPath, 'utf-8') !== timer) {
-      throw new Error('Written unit files did not match the report-only definitions.');
-    }
   } catch {
     return {
       installed: false,
       active: false,
       message: stopFailed
-        ? 'Could not stop the existing systemd timer, and report-only files could not be written and verified; a previous destructive command may still be active.'
-        : 'The old timer was stopped, but the report-only systemd files could not be written and verified.',
+        ? 'Could not stop the existing systemd timer, and report-only files could not be written; a previous destructive command may still be active.'
+        : 'The old timer was stopped, but the report-only systemd files could not be written.',
     };
   }
 

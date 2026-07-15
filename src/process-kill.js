@@ -64,12 +64,22 @@ function verifyProcessUnix(proc, runtime = runtimeOptions()) {
 
     return { valid: true, reason: 'verified' };
   } catch {
-    return { valid: false, reason: 'process-gone' };
+    return {
+      valid: false,
+      reason: unixProcessIsGone(safePid, runtime)
+        ? 'process-gone'
+        : 'identity-query-failed',
+    };
   }
 }
 
 function verifyProcessWindows(proc, runtime = runtimeOptions({ platform: 'win32' })) {
-  const current = readWindowsProcess(proc.pid, runtime);
+  let current;
+  try {
+    current = readWindowsProcess(proc.pid, runtime);
+  } catch {
+    return { valid: false, reason: 'identity-query-failed' };
+  }
   if (!current) {
     return { valid: false, reason: 'process-gone' };
   }
@@ -113,6 +123,15 @@ function normalizeStartTime(startTime) {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+}
+
+function unixProcessIsGone(pid, runtime) {
+  try {
+    runtime.kill(pid, 0);
+    return false;
+  } catch (err) {
+    return err?.code === 'ESRCH';
+  }
 }
 
 function killProcess(target, timeoutMs, options = {}) {

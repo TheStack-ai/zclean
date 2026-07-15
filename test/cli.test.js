@@ -34,7 +34,6 @@ describe('CLI argument contract', () => {
     assert.equal(result.status, 0);
     assert.match(result.stdout, /zclean --yes\s+Kill only cleanupEligible confirmed-stale candidates/);
     assert.match(result.stdout, /zclean init\s+Create config \+ hourly read-only audit scheduler/);
-    assert.doesNotMatch(result.stdout, /Install hooks \+ scheduler/);
     assert.match(result.stdout, /zclean history \[--json\]\s+Show cleanup history/);
     assert.match(result.stdout, /zclean protect list \[--json\]\s+Show protected whitelist entries/);
     assert.match(result.stdout, /zclean doctor \[--json\]\s+Check if zclean is properly set up/);

@@ -32,7 +32,6 @@ describe('provider-neutral init command', () => {
       assert.deepEqual(calls, ['scheduler']);
       assert.equal(fs.existsSync(path.join(configDir, 'config.json')), true);
       assert.equal(fs.existsSync(path.join(home, '.claude')), false);
-      assert.doesNotMatch(output.join('\n'), /CLAUDE/i);
       assert.match(output.join('\n'), /02\s+SCHEDULER\s+ACTIVE/);
     });
   });

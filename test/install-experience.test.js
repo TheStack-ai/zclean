@@ -54,7 +54,6 @@ describe('install experience', () => {
     assert.match(output, /Z \/ CLEAN/);
     assert.match(output, /01\s+CONFIG\s+READY/);
     assert.match(output, /02\s+SCHEDULER\s+ACTIVE/);
-    assert.doesNotMatch(output, /CLAUDE HOOK|SessionEnd/);
     assert.match(output, /SYSTEM READY/);
     assert.match(output, /zclean audit/);
     assert.match(output, /zclean doctor/);

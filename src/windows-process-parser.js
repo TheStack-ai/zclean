@@ -189,6 +189,7 @@ module.exports = {
   parseCIMOutput,
   parseCIMResult,
   parseJsonRows,
+  parseJsonRowsResult,
   parseWindowsDate,
   parseWMICOutput,
   parseWMICResult,

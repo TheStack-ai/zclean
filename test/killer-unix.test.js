@@ -201,6 +201,30 @@ describe('Unix kill verification', () => {
     assert.match(result.error, /identity/i);
     assert.deepEqual(signals, [[3210, 'SIGTERM']]);
   });
+
+  it('fails closed when the identity query fails after SIGTERM', () => {
+    const proc = { pid: 3210, cmd: 'node /tmp/worker.js', startTime: null };
+    const signals = [];
+    let commandReads = 0;
+    const result = killProcess(proc, 1000, {
+      platform: 'linux',
+      execSync(command) {
+        if (command.includes('ps -o command=')) {
+          commandReads += 1;
+          if (commandReads === 1) return proc.cmd;
+          throw new Error('ps provider unavailable');
+        }
+        throw new Error(`unexpected command: ${command}`);
+      },
+      kill(pid, signal) {
+        signals.push([pid, signal]);
+      },
+    });
+
+    assert.equal(result.success, false);
+    assert.match(result.error, /query|unverified|identity/i);
+    assert.deepEqual(signals, [[3210, 'SIGTERM'], [3210, 0]]);
+  });
 });
 
 describe('custom pattern kill verification', () => {
