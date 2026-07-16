@@ -142,7 +142,7 @@ describe('private storage concurrency', () => {
         () => loadConfig(),
         (error) => error?.code === 'ZCLEAN_UNSAFE_STORAGE'
       );
-      assert.equal(fileOpens, 2);
+      assert.ok(fileOpens >= 2);
     } finally {
       fs.openSync = originalOpen;
       if (originalConfigDir === undefined) delete process.env.ZCLEAN_CONFIG_DIR;

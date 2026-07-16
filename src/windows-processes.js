@@ -59,7 +59,7 @@ function readCIMProcesses(runtime) {
   let output;
   try {
     output = runtime.execSync(
-      'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,WorkingSetSize,CreationDate | ConvertTo-Json -Compress"',
+      powershellCommand('Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,CommandLine,WorkingSetSize,CreationDate | ConvertTo-Json -Compress'),
       {
         encoding: 'utf-8',
         timeout: 15000,
@@ -92,7 +92,7 @@ function readWindowsProcess(pid, runtime) {
   if (!safePid) return null;
 
   const output = runtime.execSync(
-    `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress"`,
+    powershellCommand(`Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId,CommandLine,CreationDate | ConvertTo-Json -Compress`),
     {
       encoding: 'utf-8',
       timeout: 5000,
@@ -127,7 +127,7 @@ function windowsProcessExists(pid, runtime) {
 
   try {
     const output = runtime.execSync(
-      `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId | ConvertTo-Json -Compress"`,
+      powershellCommand(`Get-CimInstance Win32_Process -Filter 'ProcessId = ${safePid}' | Select-Object ProcessId | ConvertTo-Json -Compress`),
       {
         encoding: 'utf-8',
         timeout: 3000,
@@ -143,6 +143,12 @@ function windowsProcessExists(pid, runtime) {
   } catch {
     return null;
   }
+}
+
+function powershellCommand(script) {
+  const utf8 = '$OutputEncoding = [Console]::OutputEncoding = '
+    + '[System.Text.UTF8Encoding]::new($false)';
+  return `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "${utf8}; ${script}"`;
 }
 
 module.exports = {

@@ -112,9 +112,10 @@ function parseJsonRows(output) {
 }
 
 function parseJsonRowsResult(output) {
-  if (!output.trim()) return { rows: [], invalid: false };
+  const normalized = String(output || '').trim();
+  if (!normalized) return { rows: [], invalid: false };
   try {
-    const parsed = JSON.parse(output);
+    const parsed = JSON.parse(normalized);
     if (Array.isArray(parsed)) return { rows: parsed, invalid: false };
     if (parsed && typeof parsed === 'object') return { rows: [parsed], invalid: false };
   } catch {

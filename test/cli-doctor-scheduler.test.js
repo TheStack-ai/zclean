@@ -126,14 +126,11 @@ describe('CLI doctor scheduler contract', () => {
   }
 
   it('accepts generated report-only scheduler definitions on every platform', () => {
-    const bin = process.platform === 'win32'
-      ? 'C:\\Program Files\\zclean\\zclean.cmd'
-      : '/usr/local/bin/zclean';
     const cases = [
       {
         platform: 'darwin',
         file: ['Library', 'LaunchAgents', 'com.zclean.hourly.plist'],
-        content: generatePlist(bin),
+        content: generatePlist('/usr/local/bin/zclean'),
         execSync: () => 'com.zclean.hourly',
       },
       {
@@ -141,16 +138,16 @@ describe('CLI doctor scheduler contract', () => {
         file: ['.config', 'systemd', 'user', 'zclean.timer'],
         service: ['.config', 'systemd', 'user', 'zclean.service'],
         content: '[Timer]\nOnCalendar=hourly\n',
-        serviceContent: generateService(bin),
+        serviceContent: generateService('/usr/local/bin/zclean'),
         execSync: (command) => command.includes(' show ')
-          ? `argv[]=${bin} audit --json ;`
+          ? 'argv[]=/usr/local/bin/zclean audit --json ;'
           : 'active',
       },
       {
         platform: 'win32',
         execSync: () => [
           '<Task><Actions><Exec>',
-          `<Command>${bin}</Command>`,
+          '<Command>C:\\Program Files\\zclean\\zclean.cmd</Command>',
           '<Arguments>audit --json</Arguments>',
           '</Exec></Actions></Task>',
         ].join(''),

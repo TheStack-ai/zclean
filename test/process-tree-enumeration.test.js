@@ -96,6 +96,24 @@ describe('ProcessTree', () => {
       assert.ok(!calls.some(({ command }) => command.includes('wmic process get')));
     });
 
+    it('accepts a BOM before CIM JSON output', () => {
+      const tree = ProcessTree.fromCIM({
+        currentPid: 9999,
+        execSync: () => `\ufeff${sampleCimOutput}`,
+      });
+
+      assert.equal(tree.get(1234).ppid, 4321);
+      assert.equal(tree.errors.length, 0);
+    });
+
+    it('enumerates live Windows processes without a false-clean result', {
+      skip: process.platform !== 'win32',
+    }, () => {
+      const tree = ProcessTree.build();
+      assert.equal(tree.errors.length, 0, JSON.stringify(tree.errors));
+      assert.ok(tree.byPid.size > 0, JSON.stringify(tree.warnings));
+    });
+
     it('falls back to CIM when WMIC returns no process rows', () => {
       const tree = ProcessTree.build({
         platform: 'win32',

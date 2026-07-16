@@ -35,7 +35,9 @@ describe('legacy Claude hook filesystem safety', () => {
 
     assertResult(result, 'removed');
     assert.deepEqual(events, ['write', 'rename:true']);
-    assert.equal(fs.statSync(fixture.settingsPath).mode & 0o777, 0o640);
+    if (process.platform !== 'win32') {
+      assert.equal(fs.statSync(fixture.settingsPath).mode & 0o777, 0o640);
+    }
     assert.equal(fs.existsSync(tempPath), false);
   });
 
