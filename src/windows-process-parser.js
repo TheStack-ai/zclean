@@ -35,7 +35,9 @@ function parseWMICResult(output, runtime) {
 
     const indexOf = (name) => headers.indexOf(name);
     const column = (name) => (indexOf(name) >= 0 ? parts[indexOf(name)] : '');
-    const pid = normalizePid(column('processid'));
+    const rawPid = Number(column('processid'));
+    if (rawPid === 0) continue;
+    const pid = normalizePid(rawPid);
     const ppid = Number(column('parentprocessid'));
     const cmd = String(column('commandline') || '').trim();
     if (!pid || !Number.isInteger(ppid) || ppid < 0) {
@@ -67,7 +69,9 @@ function parseCIMResult(output, runtime) {
   let unparsedRowCount = parsedRows.invalid ? 1 : 0;
 
   for (const row of parsedRows.rows) {
-    const pid = normalizePid(readField(row, 'ProcessId'));
+    const rawPid = Number(readField(row, 'ProcessId'));
+    if (rawPid === 0) continue;
+    const pid = normalizePid(rawPid);
     const ppid = Number(readField(row, 'ParentProcessId'));
     const cmd = String(readField(row, 'CommandLine') || '').trim();
     if (!pid || !Number.isInteger(ppid) || ppid < 0) {

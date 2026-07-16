@@ -65,6 +65,13 @@ describe('ProcessTree', () => {
   describe('Windows enumeration', () => {
     const sampleCimOutput = JSON.stringify([
       {
+        ProcessId: 0,
+        ParentProcessId: 0,
+        CommandLine: null,
+        WorkingSetSize: 8192,
+        CreationDate: null,
+      },
+      {
         ProcessId: 1234,
         ParentProcessId: 4321,
         CommandLine: 'node C:\\agent\\server.js',
