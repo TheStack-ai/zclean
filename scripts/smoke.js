@@ -8,9 +8,11 @@ const { spawnSync } = require('node:child_process');
 const repoRoot = path.join(__dirname, '..');
 const bin = path.join(repoRoot, 'bin', 'zclean.js');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'zclean-smoke-'));
+const home = path.join(root, 'home');
 const env = {
   ...process.env,
-  HOME: path.join(root, 'home'),
+  HOME: home,
+  USERPROFILE: home,
   ZCLEAN_CONFIG_DIR: path.join(root, 'config'),
   NO_COLOR: '1',
 };
